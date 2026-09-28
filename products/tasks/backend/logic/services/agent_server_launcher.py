@@ -20,7 +20,11 @@ from django.conf import settings
 
 from posthog.dataclasses import frozen
 
-from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
+from products.tasks.backend.constants import (
+    CLAUDE_REJECTED_TOKEN_MESSAGE,
+    POSTHOG_EXEC_PERMISSION_REGEX,
+    SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
+)
 from products.tasks.backend.exceptions import ProcessTaskFatalError, SandboxExecutionError, SandboxTimeoutError
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
@@ -39,6 +43,7 @@ from products.tasks.backend.logic.services.agentsh import (
 )
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.sandbox import (
+    CLAUDE_CREDENTIAL_REJECTED_CODE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     WORKING_DIR,
     SandboxBase,
@@ -81,6 +86,7 @@ AGENT_SERVER_PREFLIGHT_REUSE_MARKER = "__posthog_agent_preflight_reuse=1"
 AGENT_SERVER_PREFLIGHT_SKILLS_EXIT_CODE = 90
 AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE = 91
 AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE = 92
+AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE = 93
 AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS = 60
 
 # The read probe wants a large file the agent-server boot never opens, so its first read is cold:
@@ -227,7 +233,9 @@ def build_agent_server_preflight_script(*, probe_health: bool, executable_paths:
                 f"health_output=$({health_command})",
                 "health_status=$?",
                 'printf "%s\\n" "$health_output"',
-                f'case "$health_output" in *claude_credential_unavailable*|*codex_credential_unavailable*) '
+                f'case "$health_output" in *{CLAUDE_CREDENTIAL_REJECTED_CODE}*) '
+                f"exit {AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE};; "
+                "*claude_credential_unavailable*|*codex_credential_unavailable*) "
                 f"exit {AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE};; esac",
                 f'if [ "$health_status" -eq 0 ]; then '
                 f"echo {shlex.quote(AGENT_SERVER_PREFLIGHT_REUSE_MARKER)}; exit 0; fi",
@@ -243,7 +251,11 @@ CODEX_CREDENTIAL_UNAVAILABLE_MARKER = "codex_credential_unavailable"
 
 
 def _credential_marker(*sources: str) -> str | None:
-    for marker in (CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER, CODEX_CREDENTIAL_UNAVAILABLE_MARKER):
+    for marker in (
+        CLAUDE_CREDENTIAL_REJECTED_CODE,
+        CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER,
+        CODEX_CREDENTIAL_UNAVAILABLE_MARKER,
+    ):
         if any(marker in source for source in sources):
             return marker
     return None
@@ -528,6 +540,13 @@ class AgentServerLaunchMixin(SandboxBase):
                 {"sandbox_id": self.id, "paths": ",".join(executable_paths), "mode": "+x", "stderr": result.stderr},
                 cause=RuntimeError("agent-server preflight could not make the required files executable"),
             )
+        if result.exit_code == AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE:
+            raise ProcessTaskFatalError(
+                CLAUDE_REJECTED_TOKEN_MESSAGE,
+                {"sandbox_id": self.id},
+                RuntimeError("Claude rejected the token"),
+                capture=False,
+            )
         if result.exit_code == AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE:
             raise ProcessTaskFatalError(
                 "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
@@ -798,6 +817,13 @@ class AgentServerLaunchMixin(SandboxBase):
         timeout again for a token the user has to supply.
         """
         marker = _credential_marker(*sources)
+        if marker == CLAUDE_CREDENTIAL_REJECTED_CODE:
+            return ProcessTaskFatalError(
+                CLAUDE_REJECTED_TOKEN_MESSAGE,
+                context,
+                RuntimeError("Claude rejected the token"),
+                capture=False,
+            )
         if marker == CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER:
             return ProcessTaskFatalError(
                 "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
