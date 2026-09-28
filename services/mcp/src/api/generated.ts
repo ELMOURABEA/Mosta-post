@@ -105548,7 +105548,7 @@ export namespace Schemas {
      */
     page_size?: number | null;
     /**
-     * Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -105600,7 +105600,7 @@ export namespace Schemas {
      */
     page_size?: number | null;
     /**
-     * Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -105652,7 +105652,7 @@ export namespace Schemas {
      */
     page_size?: number | null;
     /**
-     * Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -105704,7 +105704,7 @@ export namespace Schemas {
      */
     page_size?: number | null;
     /**
-     * Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -106186,7 +106186,7 @@ export namespace Schemas {
      */
     limit?: number | null;
     /**
-     * Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
@@ -106238,7 +106238,7 @@ export namespace Schemas {
      */
     limit?: number | null;
     /**
-     * Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
      * @nullable
      */
     start_date?: string | null;
