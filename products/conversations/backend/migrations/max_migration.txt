@@ -1,1 +1,1 @@
-0072_ticket_deleted_at_index
+0073_teamconversationsticketconfig
