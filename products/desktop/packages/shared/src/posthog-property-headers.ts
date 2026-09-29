@@ -4,6 +4,7 @@ export type PosthogProperties = Record<string, PosthogPropertyValue>;
 
 export const POSTHOG_PROJECT_ID_HEADER = "X-PostHog-Project-Id";
 export const POSTHOG_TASK_RUN_ID_HEADER = "X-PostHog-Task-Run-Id";
+export const POSTHOG_SESSION_ID_HEADER = "X-PostHog-Session-Id";
 
 /**
  * Make a value safe to embed in an HTTP header value. Only printable ASCII
@@ -109,6 +110,27 @@ export function buildPosthogProjectHeaderLines(
   projectId: number | null | undefined,
 ): string {
   return projectId ? `${POSTHOG_PROJECT_ID_HEADER}: ${projectId}` : "";
+}
+
+/**
+ * Gateway-owned session attribution. The Go AI gateway records this as
+ * `$ai_session_id`; it must not be sent in the properties blob because that
+ * blob drops `$`-prefixed keys.
+ */
+export function buildPosthogSessionHeaderRecord(
+  sessionId: string | null | undefined,
+): Record<string, string> {
+  return sessionId
+    ? { [POSTHOG_SESSION_ID_HEADER]: sanitizeHeaderValue(sessionId) }
+    : {};
+}
+
+export function buildPosthogSessionHeaderLines(
+  sessionId: string | null | undefined,
+): string {
+  return Object.entries(buildPosthogSessionHeaderRecord(sessionId))
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
 }
 
 export function buildPosthogScopedPropertyHeaderRecord(

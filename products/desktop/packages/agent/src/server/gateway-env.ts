@@ -2,6 +2,8 @@ import type { SpanContext } from "@opentelemetry/api";
 import {
   buildPosthogPropertiesHeaderLines,
   buildPosthogPropertiesHeaderRecord,
+  buildPosthogSessionHeaderLines,
+  buildPosthogSessionHeaderRecord,
   buildPosthogScopedPropertyHeaderLines,
   buildPosthogScopedPropertyHeaderRecord,
 } from "@posthog/shared/posthog-property-headers";
@@ -136,8 +138,16 @@ export function buildGatewayEnv(
       ai_product: aiProduct,
       team_id: projectId,
     };
-    customHeaders = buildPosthogPropertiesHeaderLines(properties);
-    openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
+    customHeaders = [
+      buildPosthogPropertiesHeaderLines(properties),
+      buildPosthogSessionHeaderLines(taskId),
+    ]
+      .filter(Boolean)
+      .join("\n");
+    openaiCustomHeaders = {
+      ...buildPosthogPropertiesHeaderRecord(properties),
+      ...buildPosthogSessionHeaderRecord(taskId),
+    };
     // The Go gateway writes this into the OpenAI body's `service_tier`, which
     // is the only way a Codex run reaches the flex or priority queue: Codex
     // itself omits a tier its model catalogue does not advertise. Codex-only,
