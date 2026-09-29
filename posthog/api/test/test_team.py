@@ -25,6 +25,7 @@ from posthog.api.team import (
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
 )
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
@@ -4003,6 +4004,35 @@ _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (serializer, scopes, allowed)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for scopes, allowed in ((None, True), (["project:read"], False), (["query:read"], True), (["*"], True))
+        ]
+    )
+    def test_live_events_token_requires_query_access(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        scopes: list[str] | None,
+        allowed: bool,
+    ) -> None:
+        authenticator = None
+        if scopes is not None:
+            authenticator = PersonalAPIKeyAuthentication()
+            authenticator.personal_api_key = PersonalAPIKey(scopes=scopes)
+        request = MagicMock(user=MagicMock(id=1, is_authenticated=True))
+        request.successful_authenticator = authenticator
+        team = Team(id=1)
+        serializer = serializer_class(context={"request": request})
+
+        with patch("posthog.api.team.get_or_mint_live_events_token", return_value="test-live-token"):
+            if isinstance(serializer, TeamSerializer):
+                token = serializer.get_live_events_token(team)
+            else:
+                token = serializer.get_live_events_token(MagicMock(passthrough_team=team))
+            self.assertEqual(token, "test-live-token" if allowed else None)
+
     @parameterized.expand(
         [
             (serializer, value)
