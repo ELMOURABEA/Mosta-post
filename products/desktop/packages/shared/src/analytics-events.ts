@@ -1608,6 +1608,7 @@ export interface AnnouncementProperties {
 export interface EvidencePreviewShownProperties {
   kind: string;
   cache: "hit" | "miss";
+  reference_source: "link" | "tag";
 }
 
 export interface EvidencePreviewReadyProperties {

@@ -61,7 +61,10 @@ import {
   toAcpMcpServers,
 } from "@posthog/shared";
 import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
-import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
+import {
+  appendRichOutputPrompt,
+  getProjectWebUrl,
+} from "@posthog/shared/rich-output-prompt";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -225,6 +228,7 @@ export function buildCloudSessionSystemPrompt(
   cloudAppend: string,
   userPrompt: ClaudeCodeConfig["systemPrompt"],
   interactionOrigin?: string | null,
+  projectUrl?: string | null,
 ): string | { append: string } {
   const prompt = [
     typeof userPrompt === "string" ? userPrompt : userPrompt?.append,
@@ -235,6 +239,7 @@ export function buildCloudSessionSystemPrompt(
   const combinedPrompt = appendRichOutputPrompt(
     prependProductEngineerPrompt(prompt),
     interactionOrigin,
+    projectUrl,
   );
 
   return typeof userPrompt === "string"
@@ -4310,6 +4315,7 @@ export class AgentServer {
       cloudAppend,
       userPrompt,
       this.isSlackReplyContext() ? "slack" : this.getCloudInteractionOrigin(),
+      getProjectWebUrl(this.config.apiUrl, this.config.projectId),
     );
     return this.isSlackReplyContext()
       ? appendSte100Guidance(sessionPrompt)
