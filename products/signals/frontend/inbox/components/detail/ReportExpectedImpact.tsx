@@ -59,7 +59,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
     return (
         <div className="flex flex-col gap-3 rounded-lg border p-4" data-attr="report-expected-impact">
             {measurements.length ? (
-                measurements.map(({ check, config, metric, goal, detail }) => {
+                measurements.map(({ check, config, metric, goal, detail, tag, cancellable }) => {
                     const query = asReportMetricSeriesQuery(metric)
                     return (
                         <div key={check.id} className="flex flex-col gap-2">
@@ -67,8 +67,12 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                 {metric.title}: {goal}
                             </p>
                             <p className="m-0 text-secondary text-sm">
-                                {check.approved_at ? 'Approved measurement' : 'Proposed measurement'} · Goal for the
-                                full query window
+                                {cancellable
+                                    ? check.approved_at
+                                        ? 'Approved measurement'
+                                        : 'Proposed measurement'
+                                    : tag.label}{' '}
+                                · Goal for the full query window
                             </p>
                             {query ? (
                                 <ReportCheckMetricChart
