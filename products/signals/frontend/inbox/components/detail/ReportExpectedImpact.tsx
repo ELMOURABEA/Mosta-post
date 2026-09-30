@@ -18,8 +18,8 @@ const MAX_VISIBLE_MEASUREMENTS = 6
 export function ReportExpectedImpact({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
     const [modalOpen, setModalOpen] = useState(false)
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { reportChecks, approvingCheckIds } = useValues(logic)
-    const { approveReportCheck } = useActions(logic)
+    const { reportChecks, reportChecksError, reportChecksLoading, approvingCheckIds } = useValues(logic)
+    const { approveReportCheck, loadReportChecks } = useActions(logic)
     const { currentProjectId } = useValues(inboxTaskKickoffLogic)
     const measurements = buildReportCheckRows(reportChecks ?? [], new Map())
         .filter(({ check }) => check.kind === 'metric_threshold' && check.status !== 'cancelled')
@@ -99,6 +99,19 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                         </div>
                     )
                 })
+            ) : reportChecks === null && reportChecksError ? (
+                <div className="flex flex-wrap items-center gap-2">
+                    <p className="m-0 text-secondary text-sm">{reportChecksError}</p>
+                    <LemonButton
+                        data-attr="report-expected-impact-retry"
+                        type="secondary"
+                        size="small"
+                        loading={reportChecksLoading}
+                        onClick={() => loadReportChecks()}
+                    >
+                        Try again
+                    </LemonButton>
+                </div>
             ) : (
                 <p className="m-0 text-secondary text-sm">
                     {reportChecks === null ? 'Loading measurements…' : 'No metric follow-up checks yet.'}
@@ -112,7 +125,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                     loading={approving}
                     disabledReason={
                         reportChecks === null
-                            ? 'Loading measurements…'
+                            ? (reportChecksError ?? 'Loading measurements…')
                             : currentProjectId == null
                               ? 'Select a project to approve measurements.'
                               : pendingApproval.length === 0

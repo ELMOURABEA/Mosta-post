@@ -329,6 +329,7 @@ export interface inboxReportDetailLogicValues {
     reportArtefactsLoading: boolean
     reportCharts: ReportChartApi[]
     reportChecks: SignalReportCheckApi[] | null
+    reportChecksError: string | null
     reportChecksLoading: boolean
     reportDiff: CommitDiffResponseApi | null
     reportDiffError: string | null
@@ -1055,6 +1056,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 loadPrComments: () => null,
                 loadPrCommentsSuccess: () => null,
                 loadPrCommentsFailure: () => "Couldn't load the PR comments from GitHub.",
+            },
+        ],
+        // Cleared only on success, so the error and its retry button stay visible while the retry runs.
+        reportChecksError: [
+            null as string | null,
+            {
+                loadReportChecksSuccess: () => null,
+                loadReportChecksFailure: () => "Couldn't load the measurements.",
             },
         ],
         // The one in-progress draft thread on a diff line. Reset when the report changes.
