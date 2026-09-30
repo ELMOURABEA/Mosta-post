@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 49 enabled ops
+ * PostHog API - MCP 50 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -419,7 +419,7 @@ export const SignalsReportArtefactsCreateBody = () => zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -479,7 +479,7 @@ export const SignalsReportArtefactsPartialUpdateBody = () => zod
     )
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const SignalsReportArtefactsDestroyParams = () => zod.object({
@@ -519,7 +519,7 @@ export const SignalsReportChecksListQueryParams = () => zod.object({
 })
 
 /**
- * Checks attached to a signal report: read and cancel.
+ * Checks attached to a signal report: read, approve, replace metrics, and cancel.
  *
  * There is no create here. A check is authored by a scout run or by the research pipeline, both
  * through `report_check_authoring.create_check`. An `agent` check puts its author's prose in front
@@ -527,8 +527,9 @@ export const SignalsReportChecksListQueryParams = () => zod.object({
  * endpoint accepts one. Anyone who can read the report can read its checks, and a person can
  * still stop one.
  *
- * There is no update: a check is a claim about the future, and editing its threshold after a
- * result would make the recorded verdict unreadable. Cancel it and let its author write a new one.
+ * There is no in-place update: a check is a claim about the future, and editing its threshold
+ * after a result would make the recorded verdict unreadable. Replacing an open metric check
+ * cancels the old row and creates a new one in one transaction.
  * @summary Get a single check
  */
 export const SignalsReportChecksRetrieveParams = () => zod.object({
@@ -542,6 +543,150 @@ export const SignalsReportChecksRetrieveParams = () => zod.object({
         .string()
         .describe(
             "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+        ),
+})
+
+/**
+ * Atomically replace an open metric check. The old check stays live if the new one is invalid.
+ * @summary Replace a metric follow-up check
+ */
+export const SignalsReportChecksReplaceCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal report check.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    report_id: zod.string(),
+})
+
+export const signalsReportChecksReplaceCreateBodyTitleMax = 200
+
+export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
+
+export const signalsReportChecksReplaceCreateBodyConfigOneOneMetricKindDefault = `custom`
+export const signalsReportChecksReplaceCreateBodyConfigOneOneValueFormatDefault = `number`
+export const signalsReportChecksReplaceCreateBodyConfigOneOneUnitOneMax = 40
+
+export const signalsReportChecksReplaceCreateBodyConfigOneTwoInstructionsMax = 2000
+
+export const signalsReportChecksReplaceCreateBodyConfigOneTwoSkillNameOneMax = 200
+
+export const signalsReportChecksReplaceCreateBodyConfigOneTwoProbeHintsMax = 5
+
+export const signalsReportChecksReplaceCreateBodySoakHoursMax = 720
+
+export const SignalsReportChecksReplaceCreateBody = () => zod.object({
+    title: zod.string().max(signalsReportChecksReplaceCreateBodyTitleMax).describe('Label for the new metric check.'),
+    rationale: zod
+        .string()
+        .max(signalsReportChecksReplaceCreateBodyRationaleMax)
+        .optional()
+        .describe('Why this check is better.'),
+    config: zod
+        .union([
+            zod
+                .object({
+                    metric_id: zod
+                        .union([zod.string(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created."
+                        ),
+                    query: zod
+                        .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                        .optional()
+                        .describe(
+                            'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.'
+                        ),
+                    comparison: zod
+                        .object({
+                            operator: zod.enum(['lte', 'gte', 'between']).describe('`lte`, `gte`, or `between`.'),
+                            value: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The bound for `lte` and `gte`; unused by `between`.'),
+                            bounds: zod
+                                .union([
+                                    zod.object({
+                                        lower: zod.number(),
+                                        upper: zod.number(),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('The inclusive range for `between`; unused by `lte` and `gte`.'),
+                        })
+                        .describe('What the measured value must satisfy to pass.'),
+                    baseline_value: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'The value observed when the check was written, recorded on each result for context.'
+                        ),
+                    metric_kind: zod
+                        .enum([
+                            'affected_users',
+                            'affected_sessions',
+                            'occurrences',
+                            'conversion_rate',
+                            'error_rate',
+                            'duration',
+                            'revenue',
+                            'custom',
+                        ])
+                        .default(signalsReportChecksReplaceCreateBodyConfigOneOneMetricKindDefault)
+                        .describe('How to draw this measurement.'),
+                    value_format: zod
+                        .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
+                        .default(signalsReportChecksReplaceCreateBodyConfigOneOneValueFormatDefault)
+                        .describe('How to format measured values.'),
+                    unit: zod
+                        .union([
+                            zod.string().max(signalsReportChecksReplaceCreateBodyConfigOneOneUnitOneMax),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe('Optional value suffix.'),
+                })
+                .describe(
+                    "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
+                ),
+            zod
+                .object({
+                    instructions: zod
+                        .string()
+                        .max(signalsReportChecksReplaceCreateBodyConfigOneTwoInstructionsMax)
+                        .describe("What the run must establish, in the author's own words."),
+                    skill_name: zod
+                        .union([
+                            zod.string().max(signalsReportChecksReplaceCreateBodyConfigOneTwoSkillNameOneMax),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            "Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored."
+                        ),
+                    probe_hints: zod
+                        .array(zod.string())
+                        .max(signalsReportChecksReplaceCreateBodyConfigOneTwoProbeHintsMax)
+                        .optional()
+                        .describe(
+                            'Concrete places to look, such as an issue id, a service name, or a query to repeat.'
+                        ),
+                })
+                .describe(
+                    'A check a scout run answers: re-probe the report\'s claim and record one verdict.\n\nThe kind for a claim no single number settles. A resolved error-tracking report is the usual\ncase: \"did the exception stop?\" needs the issue looked up, its recent events read, and the\nstack compared against what the fix changed, which is a run rather than a comparison.\n\nEverything here is prompt material a scout reads, so it is untrusted by construction: it renders\nin the run block the agent is told to weigh, never in the instructions it is told to follow. The\nverdict still comes back through `scout-check-record-result`, so instructions cannot widen what\na check run may write.\n\n``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,\nso it is optional: a check that names none runs on the fleet\'s follow-up scout\n(see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).'
+                ),
+        ])
+        .describe('Metric threshold configuration, including a bounded query and comparison.'),
+    soak_hours: zod
+        .number()
+        .min(1)
+        .max(signalsReportChecksReplaceCreateBodySoakHoursMax)
+        .optional()
+        .describe(
+            "Hours after the report resolves before the replacement first runs. Defaults to the old check's soak."
         ),
 })
 
@@ -1912,9 +2057,6 @@ export const SignalsScoutEditReportBody = () => zod
                                 'custom',
                             ])
                             .describe(
-                                '\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
-                            )
-                            .describe(
                                 'What the value measures, independent of how it is formatted or drawn.\n\n\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
                             ),
                         role: zod
@@ -1943,9 +2085,6 @@ export const SignalsScoutEditReportBody = () => zod
                             ),
                         value_format: zod
                             .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
-                            .describe(
-                                '\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
-                            )
                             .default(signalsScoutEditReportBodyMetricsItemValueFormatDefault)
                             .describe(
                                 'How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms\/s unit; revenue uses currency with an ISO currency unit.\n\n\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
@@ -2339,9 +2478,6 @@ export const SignalsScoutEmitReportBody = () => zod
                                 'custom',
                             ])
                             .describe(
-                                '\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
-                            )
-                            .describe(
                                 'What the value measures, independent of how it is formatted or drawn.\n\n\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
                             ),
                         role: zod
@@ -2370,9 +2506,6 @@ export const SignalsScoutEmitReportBody = () => zod
                             ),
                         value_format: zod
                             .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
-                            .describe(
-                                '\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
-                            )
                             .default(signalsScoutEmitReportBodyMetricsItemValueFormatDefault)
                             .describe(
                                 'How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms\/s unit; revenue uses currency with an ISO currency unit.\n\n\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
@@ -2711,6 +2844,10 @@ export const signalsScoutReportCheckCreateBodyTitleMax = 200
 
 export const signalsScoutReportCheckCreateBodyRationaleMax = 2000
 
+export const signalsScoutReportCheckCreateBodyConfigOneOneMetricKindDefault = `custom`
+export const signalsScoutReportCheckCreateBodyConfigOneOneValueFormatDefault = `number`
+export const signalsScoutReportCheckCreateBodyConfigOneOneUnitOneMax = 40
+
 export const signalsScoutReportCheckCreateBodyConfigOneTwoInstructionsMax = 2000
 
 export const signalsScoutReportCheckCreateBodyConfigOneTwoSkillNameOneMax = 200
@@ -2778,6 +2915,30 @@ export const SignalsScoutReportCheckCreateBody = () => zod
                             .describe(
                                 'The value observed when the check was written, recorded on each result for context.'
                             ),
+                        metric_kind: zod
+                            .enum([
+                                'affected_users',
+                                'affected_sessions',
+                                'occurrences',
+                                'conversion_rate',
+                                'error_rate',
+                                'duration',
+                                'revenue',
+                                'custom',
+                            ])
+                            .default(signalsScoutReportCheckCreateBodyConfigOneOneMetricKindDefault)
+                            .describe('How to draw this measurement.'),
+                        value_format: zod
+                            .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
+                            .default(signalsScoutReportCheckCreateBodyConfigOneOneValueFormatDefault)
+                            .describe('How to format measured values.'),
+                        unit: zod
+                            .union([
+                                zod.string().max(signalsScoutReportCheckCreateBodyConfigOneOneUnitOneMax),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Optional value suffix.'),
                     })
                     .describe(
                         "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."

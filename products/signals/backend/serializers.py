@@ -37,8 +37,10 @@ from products.signals.backend.report_checks import (
     MAX_CHECK_INTERVAL_MINUTES,
     MAX_CHECK_RATIONALE_LENGTH,
     MAX_CHECK_RUNS,
+    MAX_CHECK_SOAK_HOURS,
     MAX_CHECK_TITLE_LENGTH,
     MIN_CHECK_INTERVAL_MINUTES,
+    MIN_CHECK_SOAK_HOURS,
     CheckConfigValidationError,
     parse_check_config,
 )
@@ -1118,9 +1120,7 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
             attrs.get(field) is not None
             for field in ("goal_value", "goal_direction", "decision_window_days", "minimum_data_points")
         ):
-            raise serializers.ValidationError(
-                "Write proposed goals as impact_measurement_plan artefacts, not report metrics."
-            )
+            raise serializers.ValidationError("Write proposed goals as follow-up checks, not report metrics.")
         return attrs
 
 
@@ -1901,6 +1901,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "kind",
             "status",
             "config",
+            "approved_at",
             "next_run_at",
             "soak_minutes",
             "run_interval_minutes",
@@ -1951,6 +1952,29 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             },
             "consecutive_errors": {"help_text": "Runs that could not be measured since the last clean one."},
         }
+
+
+class SignalReportCheckReplacementSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=MAX_CHECK_TITLE_LENGTH, help_text="Label for the new metric check.")
+    rationale = serializers.CharField(
+        required=False, allow_blank=True, max_length=MAX_CHECK_RATIONALE_LENGTH, help_text="Why this check is better."
+    )
+    config = SignalReportCheckConfigField(
+        help_text="Metric threshold configuration, including a bounded query and comparison."
+    )
+    soak_hours = serializers.IntegerField(
+        required=False,
+        min_value=MIN_CHECK_SOAK_HOURS,
+        max_value=MAX_CHECK_SOAK_HOURS,
+        help_text="Hours after the report resolves before the replacement first runs. Defaults to the old check's soak.",
+    )
+
+    def validate_config(self, value: dict) -> dict:
+        try:
+            parse_check_config(SignalReportCheck.Kind.METRIC_THRESHOLD, value)
+        except CheckConfigValidationError as error:
+            raise serializers.ValidationError(str(error))
+        return value
 
 
 class SignalReportCheckWriteSerializer(serializers.Serializer):

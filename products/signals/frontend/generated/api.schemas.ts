@@ -184,16 +184,6 @@ export interface ReportChartApi {
     size?: SizeEnumApi | null
 }
 
-/**
- * * `affected_users` - affected_users
- * * `affected_sessions` - affected_sessions
- * * `occurrences` - occurrences
- * * `conversion_rate` - conversion_rate
- * * `error_rate` - error_rate
- * * `duration` - duration
- * * `revenue` - revenue
- * * `custom` - custom
- */
 export type ReportMetricKindEnumApi = (typeof ReportMetricKindEnumApi)[keyof typeof ReportMetricKindEnumApi]
 
 export const ReportMetricKindEnumApi = {
@@ -218,14 +208,6 @@ export const RoleEnumApi = {
     Supporting: 'supporting',
 } as const
 
-/**
- * * `number` - number
- * * `count` - count
- * * `percentage` - percentage
- * * `percentage_scaled` - percentage_scaled
- * * `duration` - duration
- * * `currency` - currency
- */
 export type ValueFormatEnumApi = (typeof ValueFormatEnumApi)[keyof typeof ValueFormatEnumApi]
 
 export const ValueFormatEnumApi = {
@@ -2681,7 +2663,7 @@ export interface PaginatedSignalReportArtefactListApi {
 export interface SignalReportArtefactLogCreateApi {
     /** Active claim to attribute this work to. Must belong to the caller and report. */
     claim_id?: string
-    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
     artefact_type: string
     /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
     content: unknown
@@ -2832,6 +2814,12 @@ export interface MetricThresholdConfigApi {
     comparison: CheckComparisonApi
     /** The value observed when the check was written, recorded on each result for context. */
     baseline_value?: number | null
+    /** How to draw this measurement. */
+    metric_kind?: ReportMetricKindEnumApi
+    /** How to format measured values. */
+    value_format?: ValueFormatEnumApi
+    /** Optional value suffix. */
+    unit?: string | null
 }
 
 /**
@@ -2907,6 +2895,8 @@ export interface SignalReportCheckApi {
     readonly status: SignalReportCheckStatusEnumApi
     /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
     config: SignalReportCheckConfigApi
+    /** @nullable */
+    readonly approved_at: string | null
     /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
     readonly next_run_at: string
     /**
@@ -2953,6 +2943,27 @@ export interface PaginatedSignalReportCheckListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportCheckApi[]
+}
+
+export interface SignalReportCheckReplacementApi {
+    /**
+     * Label for the new metric check.
+     * @maxLength 200
+     */
+    title: string
+    /**
+     * Why this check is better.
+     * @maxLength 2000
+     */
+    rationale?: string
+    /** Metric threshold configuration, including a bounded query and comparison. */
+    config: SignalReportCheckConfigApi
+    /**
+     * Hours after the report resolves before the replacement first runs. Defaults to the old check's soak.
+     * @minimum 1
+     * @maximum 720
+     */
+    soak_hours?: number
 }
 
 export interface SignalReportBulkStateRequestApi {

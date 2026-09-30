@@ -25,11 +25,19 @@ import { ReportCheckRow } from './ReportCheckRow'
  * where a finished check's explanation lives. Hidden entirely when the report has no checks, so the
  * rail does not grow an empty section on the reports that carry none.
  */
-export function ReportChecksSection({ report }: { report: SignalReport }): JSX.Element | null {
-    const { reportChecks, reportChecksLoading, reportArtefacts, cancellingCheckIds } = useValues(
+export function ReportChecksSection({
+    report,
+    reportUrl,
+}: {
+    report: SignalReport
+    reportUrl: string
+}): JSX.Element | null {
+    const { reportChecks, reportChecksLoading, reportArtefacts, cancellingCheckIds, approvingCheckIds } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
-    const { cancelReportCheck } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { cancelReportCheck, approveReportCheck } = useActions(
+        inboxReportDetailLogic({ reportId: report.id, report })
+    )
     const [showRetired, setShowRetired] = useState(false)
 
     if (reportChecksLoading && !reportChecks) {
@@ -59,8 +67,12 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
                     <ReportCheckRow
                         key={row.check.id}
                         row={row}
+                        report={report}
+                        reportUrl={reportUrl}
                         cancelling={cancellingCheckIds.includes(row.check.id)}
+                        approving={approvingCheckIds.includes(row.check.id)}
                         onCancel={cancelReportCheck}
+                        onApprove={approveReportCheck}
                     />
                 ))}
                 {hidden.length > 0 && !showRetired && (

@@ -27,6 +27,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     signalsReportArtefactsDiff,
+    signalsReportChecksApproveCreate,
     signalsReportChecksDestroy,
     signalsReportChecksList,
     signalsReportPrChecks,
@@ -282,6 +283,7 @@ export interface inboxReportDetailLogicValues {
     personalIntegrations: PersonalGitHubIntegration[] // personalIntegrationsLogic
     actionabilityExplanation: string | null
     addReviewerOptions: AvailableReviewerOption[]
+    approvingCheckIds: string[]
     availableReviewers: AvailableReviewerOption[] | null
     availableReviewersLoading: boolean
     cancellingCheckIds: string[]
@@ -354,6 +356,12 @@ export interface inboxReportDetailLogicActions {
     discussReportSuccess: () => {
         value: true
     } // inboxTaskKickoffLogic
+    approveReportCheck: (checkId: string) => {
+        checkId: string
+    }
+    approveReportCheckDone: (checkId: string) => {
+        checkId: string
+    }
     cancelReportCheck: (checkId: string) => {
         checkId: string
     }
@@ -720,6 +728,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         cancelReportCheck: (checkId: string) => ({ checkId }),
         // Fired whether the cancel succeeded or failed, so the row's button always comes back.
         cancelReportCheckDone: (checkId: string) => ({ checkId }),
+        approveReportCheck: (checkId: string) => ({ checkId }),
+        approveReportCheckDone: (checkId: string) => ({ checkId }),
         // Driven by the submit listener only, so the re-entrancy guard and the Send button's
         // loading state read the same flag.
         setFeedbackNoteSubmitting: (submitting: boolean) => ({ submitting }),
@@ -909,6 +919,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 cancelReportCheck: (state: string[], { checkId }: { checkId: string }) =>
                     state.includes(checkId) ? state : [...state, checkId],
                 cancelReportCheckDone: (state: string[], { checkId }: { checkId: string }) =>
+                    state.filter((id) => id !== checkId),
+            },
+        ],
+        approvingCheckIds: [
+            [] as string[],
+            {
+                approveReportCheck: (state: string[], { checkId }: { checkId: string }) =>
+                    state.includes(checkId) ? state : [...state, checkId],
+                approveReportCheckDone: (state: string[], { checkId }: { checkId: string }) =>
                     state.filter((id) => id !== checkId),
             },
         ],
@@ -1354,6 +1373,23 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, asyncActions, values, props }) => ({
+        approveReportCheck: async ({ checkId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.approveReportCheckDone(checkId)
+                return
+            }
+            try {
+                const approved = await signalsReportChecksApproveCreate(String(teamId), props.reportId, checkId)
+                actions.loadReportChecksSuccess(
+                    (values.reportChecks ?? []).map((check) => (check.id === checkId ? approved : check))
+                )
+            } catch {
+                lemonToast.error('Could not approve this check. Please try again.')
+            } finally {
+                actions.approveReportCheckDone(checkId)
+            }
+        },
         // The endpoint answers with the cancelled row, so the list is patched in place rather than
         // refetched: the section keeps its scroll position and the other rows never flicker.
         cancelReportCheck: async ({ checkId }) => {

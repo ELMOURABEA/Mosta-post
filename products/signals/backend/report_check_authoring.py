@@ -80,24 +80,7 @@ def create_check(
     if (next_run_at is None) == (soak_minutes is None):
         raise CheckCreationError("a check names either a next_run_at or a soak_minutes, not both and not neither")
 
-    try:
-        parsed = parse_check_config(kind, config)
-    except CheckConfigValidationError as error:
-        raise CheckCreationError(str(error)) from None
-
-    stored_config = dict(config)
-    if isinstance(parsed, MetricThresholdConfig) and parsed.metric_id is not None:
-        if parsed.query is not None:
-            raise CheckCreationError(
-                "provide either metric_id or query, not both. The metric's query is copied onto the check."
-            )
-        # Resolved now and stored, rather than at each run: an unresolvable reference would
-        # otherwise sit idle for the whole soak window before retiring, and one resolved late would
-        # measure whatever the metric had become.
-        try:
-            stored_config["query"] = resolve_check_query(parsed, report)
-        except ValueError as error:
-            raise CheckCreationError(f"This check cannot run: {error}.") from None
+    stored_config = _stored_config(report, kind, config)
 
     now = timezone.now()
 
@@ -162,41 +145,83 @@ def create_check(
         return check
 
 
+def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
+    try:
+        parsed = parse_check_config(kind, config)
+    except CheckConfigValidationError as error:
+        raise CheckCreationError(str(error)) from None
+
+    stored_config = dict(config)
+    if isinstance(parsed, MetricThresholdConfig) and parsed.metric_id is not None:
+        if parsed.query is not None:
+            raise CheckCreationError(
+                "provide either metric_id or query, not both. The metric's query is copied onto the check."
+            )
+        # Resolved now and stored, rather than at each run: an unresolvable reference would
+        # otherwise sit idle for the whole soak window before retiring, and one resolved late would
+        # measure whatever the metric had become.
+        try:
+            stored_config["query"] = resolve_check_query(parsed, report)
+        except ValueError as error:
+            raise CheckCreationError(f"This check cannot run: {error}.") from None
+        for metric in report.metrics or []:
+            if isinstance(metric, dict) and metric.get("metric_id") == parsed.metric_id:
+                stored_config.setdefault("metric_kind", metric.get("kind", "custom"))
+                stored_config.setdefault("value_format", metric.get("value_format", "number"))
+                stored_config.setdefault("unit", metric.get("unit"))
+                break
+        try:
+            parse_check_config(kind, stored_config)
+        except CheckConfigValidationError as error:
+            raise CheckCreationError(str(error)) from None
+
+    return stored_config
+
+
 def create_checks_from_specs(
     *,
     report: SignalReport,
     specs: list[CheckSpec],
     attribution: ArtefactAttribution,
 ) -> list[SignalReportCheck]:
-    """Write a research run's check specs on the report it just finished.
+    """Reconcile a successful verification turn with the report's open checks.
 
-    The specs replace the report's pending checks rather than joining them. Every pending row on the
-    report was written against an older version of this prose, which this pass has just rewritten.
-    Left in place, those rows would fill the per-report cap, and the resolve would arm them against
-    prose they were not written for. A pass that returns no specs leaves them alone, because
-    the verification turn is best-effort and an empty result can be a failed turn.
-
-    A spec the report cannot carry is dropped with a log rather than failing the run, the way an
-    unvalidatable chart is: the prose is the report's point, and a check that names a metric the
-    presentation turn did not keep is the model over-reaching, not a broken pipeline.
+    Identical rows keep their schedule, results, and approval. A changed or omitted claim retires;
+    replacements start unapproved. If a new spec cannot be stored, the transaction rolls back and
+    leaves the old checks running.
     """
-    if not specs:
-        return []
-    # Only the pending rows, never a check the resolve already armed: this pass replaces prose that
-    # has not been measured against yet.
-    for replaced in SignalReportCheck.objects.for_team(report.team_id).filter(
-        report_id=report.id, status=SignalReportCheck.Status.PENDING
-    ):
-        cancel_check(
-            replaced,
-            reason="replaced_by_research",
-            attribution=attribution,
-            from_statuses=(SignalReportCheck.Status.PENDING,),
-        )
-    written: list[SignalReportCheck] = []
-    for spec in specs:
-        try:
-            written.append(
+    try:
+        desired = [(spec, _stored_config(report, spec.kind, spec.config)) for spec in specs]
+        with transaction.atomic():
+            existing = list(
+                SignalReportCheck.objects.for_team(report.team_id).filter(
+                    report_id=report.id, status__in=SignalReportCheck.OPEN_STATUSES
+                )
+            )
+            retained_ids: set[uuid.UUID] = set()
+            new_specs: list[CheckSpec] = []
+            for spec, config in desired:
+                match = next(
+                    (
+                        check
+                        for check in existing
+                        if check.id not in retained_ids
+                        and check.title == spec.title
+                        and check.rationale == spec.rationale
+                        and check.kind == spec.kind
+                        and max(1, round((check.soak_minutes or 60) / 60)) == spec.soak_hours
+                        and check.config == config
+                    ),
+                    None,
+                )
+                if match is None:
+                    new_specs.append(spec)
+                else:
+                    retained_ids.add(match.id)
+            for replaced in existing:
+                if replaced.id not in retained_ids:
+                    cancel_check(replaced, reason="replaced_by_research", attribution=attribution)
+            return [
                 create_check(
                     report=report,
                     title=spec.title,
@@ -206,22 +231,49 @@ def create_checks_from_specs(
                     attribution=attribution,
                     soak_minutes=spec.soak_hours * 60,
                 )
-            )
-        except CheckCreationError as error:
-            logger.warning(
-                "signals.report_check.research_spec_dropped",
-                report_id=str(report.id),
-                team_id=report.team_id,
-                kind=spec.kind,
-                reason=str(error),
-            )
-    return written
+                for spec in new_specs
+            ]
+    except CheckCreationError as error:
+        logger.warning(
+            "signals.report_check.research_spec_dropped",
+            report_id=str(report.id),
+            team_id=report.team_id,
+            reason=str(error),
+        )
+        return []
+
+
+def replace_metric_check(
+    *,
+    check: SignalReportCheck,
+    title: str,
+    rationale: str,
+    config: dict,
+    soak_hours: int,
+    attribution: ArtefactAttribution,
+) -> SignalReportCheck:
+    """Replace one open metric check atomically, keeping it live if the new check is invalid."""
+    if check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD:
+        raise CheckCreationError("Only metric checks can be replaced this way.")
+    with transaction.atomic():
+        locked = SignalReportCheck.objects.for_team(check.team_id).select_related("report").get(id=check.id)
+        if not cancel_check(locked, reason="replaced_by_request", attribution=attribution):
+            raise CheckCreationError("This check has already finished. Review its result before adding another.")
+        return create_check(
+            report=locked.report,
+            title=title,
+            rationale=rationale,
+            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+            config=config,
+            attribution=attribution,
+            soak_minutes=soak_hours * 60,
+        )
 
 
 def cancel_check(
     check: SignalReportCheck,
     *,
-    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"],
+    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request"],
     attribution: ArtefactAttribution,
     from_statuses: Sequence[str] = SignalReportCheck.OPEN_STATUSES,
 ) -> bool:

@@ -29,7 +29,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from products.signals.backend.report_metrics import validate_live_metric_query, validate_metric_id
+from products.signals.backend.report_metrics import (
+    MAX_METRIC_UNIT_LENGTH,
+    ReportMetricKind,
+    ReportMetricValueFormat,
+    validate_live_metric_query,
+    validate_metric_id,
+)
 
 CheckOutcome = Literal["passed", "failed", "errored", "inconclusive"]
 # Why an `inconclusive` verdict could not settle the claim. Only `awaiting_data` keeps the check open.
@@ -168,6 +174,9 @@ class MetricThresholdConfig(BaseModel):
         default=None,
         description="The value observed when the check was written, recorded on each result for context.",
     )
+    metric_kind: ReportMetricKind = Field(default="custom", description="How to draw this measurement.")
+    value_format: ReportMetricValueFormat = Field(default="number", description="How to format measured values.")
+    unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH, description="Optional value suffix.")
 
     @field_validator("baseline_value", mode="before")
     @classmethod

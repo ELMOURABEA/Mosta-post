@@ -7,6 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
@@ -24,6 +25,50 @@ const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, pr
     }) as unknown as ReportTaskEntry
 
 describe('inboxReportDetailLogic', () => {
+    describe('check approval', () => {
+        const openCheck = {
+            id: 'check-1',
+            status: 'pending',
+            approved_at: null,
+            next_run_at: '2026-10-13T00:00:00Z',
+        } as SignalReportCheckApi
+        let logic: ReturnType<typeof inboxReportDetailLogic.build>
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [openCheck] },
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                },
+                post: {
+                    '/api/projects/:team_id/signals/reports/:id/checks/:check_id/approve/': {
+                        ...openCheck,
+                        approved_at: '2026-09-30T00:00:00Z',
+                    },
+                },
+            })
+            initKeaTests()
+            logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('updates only the approved row and clears its loading state', async () => {
+            logic.actions.approveReportCheck(openCheck.id)
+            expect(logic.values.approvingCheckIds).toContain(openCheck.id)
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.approvingCheckIds).toEqual([])
+            expect(logic.values.reportChecks?.[0].approved_at).toBe('2026-09-30T00:00:00Z')
+            expect(logic.values.reportChecks?.[0].next_run_at).toBe(openCheck.next_run_at)
+        })
+    })
+
     describe('reviewer updates', () => {
         const reviewer: EnrichedReviewer = {
             github_login: 'example-reviewer',

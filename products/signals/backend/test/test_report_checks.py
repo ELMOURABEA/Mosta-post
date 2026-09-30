@@ -727,6 +727,56 @@ class TestReportCheckAPI(APIBaseTest):
         already_cancelled = self.client.delete(f"{self.url}{check_id}/")
         assert already_cancelled.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_approval_is_idempotent_and_does_not_change_the_schedule(self) -> None:
+        check = self._create()
+        first = self.client.post(f"{self.url}{check.id}/approve/")
+        second = self.client.post(f"{self.url}{check.id}/approve/")
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.status_code == status.HTTP_200_OK
+        check.refresh_from_db()
+        assert check.approved_by_id == self.user.id
+        assert check.approved_at is not None
+        assert first.json()["next_run_at"] == second.json()["next_run_at"]
+        assert check.status == SignalReportCheck.Status.ACTIVE
+
+    def test_finished_check_cannot_be_approved(self) -> None:
+        check = self._create()
+        self.client.delete(f"{self.url}{check.id}/")
+
+        response = self.client.post(f"{self.url}{check.id}/approve/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        check.refresh_from_db()
+        assert check.approved_at is None
+
+    def test_metric_replacement_keeps_the_old_check_if_invalid_and_resets_approval(self) -> None:
+        check = self._create()
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(approved_at=timezone.now())
+        url = f"{self.url}{check.id}/replace/"
+
+        rejected = self.client.post(url, {"title": "Better metric", "config": {}}, format="json")
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+
+        replaced = self.client.post(
+            url,
+            {
+                "title": "Checkout errors stay below 5",
+                "config": {"query": _PAGEVIEWS, "comparison": {"operator": "lte", "value": 5}},
+                "soak_hours": 72,
+            },
+            format="json",
+        )
+        assert replaced.status_code == status.HTTP_200_OK, replaced.json()
+        check.refresh_from_db()
+        replacement = SignalReportCheck.objects.for_team(self.team.id).get(id=replaced.json()["id"])
+        assert check.status == SignalReportCheck.Status.CANCELLED
+        assert replacement.status == SignalReportCheck.Status.ACTIVE
+        assert replacement.approved_at is None
+        assert replacement.soak_minutes == 72 * 60
+
     def test_a_created_check_is_reported_for_adoption(self) -> None:
         with patch(_CAPTURE) as capture:
             with self.captureOnCommitCallbacks(execute=True):
@@ -1796,7 +1846,39 @@ class TestResearchAuthoredChecks(APIBaseTest):
         older[0].refresh_from_db()
         newer[0].refresh_from_db()
         assert older[0].status == SignalReportCheck.Status.CANCELLED
-        assert newer[0].status == SignalReportCheck.Status.PENDING
+        assert newer[0].status == SignalReportCheck.Status.CANCELLED
+
+    def test_unchanged_research_check_keeps_approval_and_schedule(self) -> None:
+        existing = create_checks_from_specs(
+            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+        )[0]
+        approved_at = timezone.now()
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(approved_at=approved_at)
+
+        assert (
+            create_checks_from_specs(report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system())
+            == []
+        )
+
+        existing.refresh_from_db()
+        assert existing.status == SignalReportCheck.Status.PENDING
+        assert existing.approved_at == approved_at
+        assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
+
+    def test_research_keeps_a_check_with_a_minute_level_soak(self) -> None:
+        existing = create_checks_from_specs(
+            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+        )[0]
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(soak_minutes=1450)
+
+        assert (
+            create_checks_from_specs(report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system())
+            == []
+        )
+
+        existing.refresh_from_db()
+        assert existing.status == SignalReportCheck.Status.PENDING
+        assert existing.soak_minutes == 1450
 
     def test_a_spec_naming_a_metric_the_report_does_not_have_is_dropped(self) -> None:
         written = create_checks_from_specs(
