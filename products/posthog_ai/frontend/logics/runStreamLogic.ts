@@ -443,7 +443,11 @@ export function userAttachment(content: unknown): ThreadAttachment | null {
     if (!name) {
         return null
     }
-    return { name, ...(uri ? (artifactRefFromUri(uri) ?? {}) : {}) }
+    const fromPath = uri ? artifactRefFromUri(uri) : null
+    if (fromPath) {
+        return { name, ...fromPath }
+    }
+    return { name, ...(typeof content.artifactId === 'string' ? { artifactId: content.artifactId } : {}) }
 }
 
 /**
@@ -609,6 +613,31 @@ export function foldUsageNotification(existing: ContextUsage | null, params: Pos
     const cost = normalizeUsageCost(params.cost)
     if (cost !== undefined) {
         next.cost = cost
+    }
+    return next
+}
+
+const PI_USAGE_TOKEN_FIELDS = ['inputTokens', 'outputTokens', 'cachedReadTokens', 'cachedWriteTokens'] as const
+
+/** Token totals summed over every Pi turn seen, and the context ring from the latest turn. */
+export function foldPiTurnUsage(
+    existing: ContextUsage | null,
+    turns: Record<string, unknown>[],
+    latest: Record<string, unknown>
+): ContextUsage {
+    const tokens: NonNullable<ContextUsage['tokens']> = {}
+    for (const field of PI_USAGE_TOKEN_FIELDS) {
+        const values = turns.map((turn) => turn[field]).filter((value): value is number => typeof value === 'number')
+        if (values.length > 0) {
+            tokens[field] = values.reduce((sum, value) => sum + value, 0)
+        }
+    }
+    const next: ContextUsage = { ...existing, tokens }
+    if (typeof latest.contextTokens === 'number') {
+        next.used = latest.contextTokens
+    }
+    if (typeof latest.contextWindow === 'number') {
+        next.size = latest.contextWindow
     }
     return next
 }
@@ -2008,7 +2037,12 @@ export function foldLogToThread(
                     }
                     const attachment = userAttachment(block)
                     if (attachment) {
-                        noteAttachment(attachment)
+                        // A Pi attachment names its artifact but not its run, which is the run that logged it.
+                        noteAttachment(
+                            attachment.artifactId && !attachment.runId && entryRunId
+                                ? { ...attachment, runId: entryRunId }
+                                : attachment
+                        )
                     }
                 }
             }
@@ -4429,6 +4463,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // `log` clears via its own reducer on `reset`, so the projection empties with it. The
                 // per-frame invocation tracker mirrors the log, so it must clear alongside it.
                 cache.trackedToolInvocations = undefined
+                cache.piTurnUsage = undefined
                 cache.permissionRunId = undefined
                 cache.activeRun = undefined
                 cache.turnStartedAtMs = undefined
@@ -4643,6 +4678,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         actions.emitTurnCompleteEvent({ streamKey: props.streamKey })
                     }
                     actions.markTurnComplete(isReplay)
+                    // Pi reports usage per turn on its turn end, not as a running total.
+                    const turnUsage = notification.params?.usage
+                    if (isRecord(turnUsage)) {
+                        const turns: Map<string, Record<string, unknown>> = (cache.piTurnUsage ??= new Map())
+                        turns.set(entry.event_id ?? `turn-${turns.size}`, turnUsage)
+                        actions.setContextUsage(foldPiTurnUsage(values.contextUsage, [...turns.values()], turnUsage))
+                    }
                     return
                 }
                 if (method === '_posthog/progress') {

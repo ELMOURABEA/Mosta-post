@@ -41,6 +41,7 @@ function setValues(
         runOpening: boolean
         threadItems: unknown[]
         task: { origin_product: string; runtime?: TaskRuntimeEnumApi } | null
+        featureFlags: Record<string, boolean>
     }>
 ): void {
     ;(useValues as jest.Mock).mockReturnValue({
@@ -54,6 +55,7 @@ function setValues(
         taskLoading: false,
         taskError: null,
         taskNotFound: false,
+        featureFlags: { 'pi-web-sessions': true },
         ...overrides,
     })
 }
@@ -127,6 +129,22 @@ describe('RunSurface', () => {
         expect(screen.getByTestId('thread')).toBeInTheDocument()
         expect(screen.getByTestId('composer-child')).toBeInTheDocument()
         expect(bootstrapRun).toHaveBeenCalledWith({ taskId: 'task-1', runId: 'run-1', taskRuntime: runtime })
+    })
+
+    it('keeps a Pi task behind the unavailable banner until Pi web sessions are on', () => {
+        const bootstrapRun = jest.fn()
+        ;(useActions as jest.Mock).mockReturnValue({ bootstrapRun, reset: jest.fn(), loadTask: jest.fn() })
+        setValues({ task: { origin_product: 'user_created', runtime: TaskRuntimeEnumApi.Pi }, featureFlags: {} })
+
+        render(
+            <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                <RunSurface.Thread />
+            </RunSurface.Root>
+        )
+
+        expect(screen.getByText("Pi session logs aren't available in PostHog yet.")).toBeInTheDocument()
+        expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
+        expect(bootstrapRun).not.toHaveBeenCalled()
     })
 
     describe('Composer slot', () => {

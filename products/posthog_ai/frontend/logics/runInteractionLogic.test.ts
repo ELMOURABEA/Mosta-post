@@ -47,6 +47,7 @@ jest.mock('./runStreamLogic', () => {
             respondToPermission: (payload: unknown) => ({ payload }),
             cancelRun: (run?: unknown) => ({ run }),
             markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
+            markRunStarted: true,
             setCurrentMode: (mode: string) => ({ mode }),
             handleTerminalStatus: (status: { status: string }) => status,
             setStubStatus: (status: string | null) => ({ status }),
@@ -1091,25 +1092,76 @@ describe('runInteractionLogic', () => {
             logic.mount()
         })
 
-        it('sends a follow-up without the model and mode commands the Pi relay rejects', async () => {
-            piLogic.actions.setModel('claude-opus-5-5')
+        const piCommand = (command: Record<string, unknown>): [string, string, string, Record<string, unknown>] => [
+            '997',
+            TASK_ID,
+            RUN_ID,
+            {
+                jsonrpc: '2.0',
+                method: 'pi/rpc',
+                id: expect.any(String),
+                params: { command: { ...command, id: expect.any(String) } },
+            },
+        ]
+
+        it.each([
+            { caseName: 'no pick', pick: () => {}, commands: [] },
+            {
+                caseName: 'a picked model',
+                pick: () => piLogic.actions.setModel('claude-opus-5-5'),
+                commands: [piCommand({ type: 'set_model', provider: 'posthog', modelId: 'claude-opus-5-5' })],
+            },
+            {
+                caseName: 'a picked effort',
+                pick: () => piLogic.actions.setEffort('low'),
+                commands: [piCommand({ type: 'set_thinking_level', level: 'low' })],
+            },
+        ])('syncs $caseName to the Pi session before a follow-up', async ({ pick, commands }) => {
+            pick()
             piLogic.actions.setComposerFormValues({ draft: 'keep going' })
             await expectLogic(piLogic, () => piLogic.actions.submitComposerForm()).toFinishAllListeners()
 
-            expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([userMessageCommand('keep going')])
+            expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([
+                ...commands,
+                userMessageCommand('keep going'),
+            ])
         })
 
-        it('resumes a terminal run without runtime fields the Pi run serializer rejects', async () => {
+        it.each([
+            { caseName: 'no pick', pick: () => {}, selection: {} },
+            {
+                caseName: 'a picked model and effort',
+                pick: () => {
+                    piLogic.actions.setModel('claude-opus-5-5')
+                    piLogic.actions.setEffort('low')
+                },
+                selection: { model: 'claude-opus-5-5', reasoning_effort: 'low' },
+            },
+        ])('resumes a terminal run with $caseName', async ({ pick, selection }) => {
             setStatus('completed')
+            pick()
             piLogic.actions.setComposerFormValues({ draft: 'continue from here' })
             await expectLogic(piLogic, () => piLogic.actions.submitComposerForm()).toFinishAllListeners()
 
             expect(tasksRunCreate).toHaveBeenCalledWith(
                 '997',
                 TASK_ID,
-                { resume_from_run_id: RUN_ID, pending_user_message: 'continue from here' },
+                { resume_from_run_id: RUN_ID, pending_user_message: 'continue from here', ...selection },
                 expect.objectContaining({ signal: expect.any(AbortSignal) })
             )
+        })
+
+        it('shows the model a live Pi session reports once the agent starts', async () => {
+            ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValueOnce({
+                jsonrpc: '2.0',
+                result: { success: true, data: { model: { id: 'claude-opus-5-5' }, thinkingLevel: 'low' } },
+            })
+
+            await expectLogic(piLogic, () => stream.actions.markRunStarted()).toFinishAllListeners()
+
+            expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([piCommand({ type: 'get_state' })])
+            expect(piLogic.values.selectedModel).toBe('claude-opus-5-5')
+            expect(piLogic.values.selectedEffort).toBe('low')
         })
     })
 

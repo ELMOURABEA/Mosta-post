@@ -1616,6 +1616,39 @@ describe('runStreamLogic', () => {
                 ])
             })
 
+            it('reads the attachments of a Pi prompt, naming the artifact and the run that logged it', () => {
+                const artifactId = '0b1e3f2a-4c5d-4e6f-8a9b-0c1d2e3f4a5b'
+                const items = foldReplay([
+                    {
+                        ...(translatePiWireEntry({
+                            type: 'pi_event',
+                            event: {
+                                type: 'user_message',
+                                id: 'u1',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: `Look here\n\nAttached files:\n- /tmp/workspace/.posthog/attachments/${artifactId}-report.csv`,
+                                    },
+                                    { type: 'image', data: 'aGk=', mimeType: 'image/png', fileName: 'shot.png' },
+                                ],
+                            },
+                        }) as StoredLogEntry),
+                        source_run_id: 'run-7',
+                    },
+                ])
+
+                expect(items.filter((item) => item.type === 'human_message')).toEqual([
+                    expect.objectContaining({
+                        text: 'Look here',
+                        attachments: [
+                            { name: 'report.csv', taskId: 'task-3', runId: 'run-7', artifactId },
+                            { name: 'shot.png' },
+                        ],
+                    }),
+                ])
+            })
+
             it('leaves a path outside the attachments layout without ids', () => {
                 const items = foldReplay([
                     sessionUpdate({
@@ -5086,6 +5119,37 @@ describe('runStreamLogic', () => {
             expect(logic.values.contextUsage?.tokens).toEqual({ inputTokens: 5000, outputTokens: 600 })
             expect(logic.values.contextUsage?.cost).toEqual(0.18)
             expect(logic.values.contextUsage?.breakdown).toEqual({ conversation: 9000 })
+        })
+
+        it('sums Pi turn usage once per turn and takes the context ring from the latest turn', async () => {
+            const turnEnd = (eventId: string, usage: Record<string, number>): StoredLogEntry => ({
+                ...notification('_posthog/turn_complete', { stopReason: 'end_turn', usage }),
+                event_id: eventId,
+            })
+            const first = turnEnd('boot-1', {
+                inputTokens: 100,
+                outputTokens: 10,
+                contextTokens: 900,
+                contextWindow: 200000,
+            })
+            const second = turnEnd('boot-2', {
+                inputTokens: 50,
+                outputTokens: 5,
+                contextTokens: 1200,
+                contextWindow: 200000,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(first, 'replay')
+                logic.actions.ingestAcpFrame(second, 'replay')
+                logic.actions.ingestAcpFrame(second, 'replay')
+            }).toFinishAllListeners()
+
+            expect(logic.values.contextUsage).toMatchObject({
+                tokens: { inputTokens: 150, outputTokens: 15 },
+                used: 1200,
+                size: 200000,
+            })
         })
 
         it('lands the numeric used/size aggregate from a session/update-framed usage_update', async () => {

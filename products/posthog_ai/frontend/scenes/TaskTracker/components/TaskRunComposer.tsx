@@ -12,7 +12,12 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import { runSlashCommandsLogic } from 'products/posthog_ai/frontend/logics/runSlashCommandsLogic'
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
-import { getRuntimeAdapterForModel, pickerModels } from 'products/posthog_ai/frontend/utils/composerModels'
+import {
+    getRuntimeAdapterForModel,
+    PI_DEFAULT_MODEL,
+    pickerModels,
+    piPickerModels,
+} from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
@@ -59,14 +64,18 @@ export function TaskRunComposer({
     const { slashCommands, commandResult } = useValues(runSlashCommandsLogic(logicProps))
     const { submitComposer, dismissCommandResult } = useActions(runSlashCommandsLogic(logicProps))
     const { catalogue } = useValues(modelCatalogueLogic)
-    const offeredModels = useMemo(() => pickerModels(catalogue, selectedModel), [catalogue, selectedModel])
+    const isPiTask = isPiTaskRuntime(logicProps.taskRuntime)
+    const offeredModels = useMemo(
+        () => (isPiTask ? piPickerModels : pickerModels)(catalogue, selectedModel),
+        [catalogue, selectedModel, isPiTask]
+    )
     const { user } = useValues(userLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
     // A live run's harness is whatever it booted on; once terminal the next run follows the picked model.
     const composerAdapter = logicProps.currentRuntimeAdapter ?? getRuntimeAdapterForModel(catalogue, selectedModel)
-    const controlsReady = isTerminal || !!logicProps.currentRuntimeAdapter
-    const showRunControls = !isPiTaskRuntime(logicProps.taskRuntime)
+    // A Pi session takes a model change at any point, and it has no ACP adapter to wait for.
+    const controlsReady = isTerminal || isPiTask || !!logicProps.currentRuntimeAdapter
     const {
         setComposerFormValues,
         enableTaskDraftPersistence,
@@ -104,7 +113,7 @@ export function TaskRunComposer({
     return (
         <div onFocusCapture={() => setComposerFocused(true)} onBlurCapture={() => setComposerFocused(false)}>
             <ComposerModeShortcut
-                disabled={!showRunControls || !composerActive || !controlsReady}
+                disabled={isPiTask || !composerActive || !controlsReady}
                 onCycle={() => setMode(cycleMode(composerAdapter, selectedMode))}
             />
             <Composer.Root
@@ -180,38 +189,43 @@ export function TaskRunComposer({
                         </Composer.Field>
                     </ComposerCommandMenu>
                     <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
-                        {showRunControls && (
-                            <fieldset
-                                disabled={!controlsReady}
-                                className="flex flex-wrap items-center gap-1 border-0 p-0 m-0 min-w-0"
-                            >
-                                {/* Mode + model/effort pickers: selection lives in the bound runInteractionLogic and is
+                        <fieldset
+                            disabled={!controlsReady}
+                            className="flex flex-wrap items-center gap-1 border-0 p-0 m-0 min-w-0"
+                        >
+                            {/* Mode + model/effort pickers: selection lives in the bound runInteractionLogic and is
                                 applied when the message is sent — synced to the running agent on a follow-up,
-                                or used to seed the next run once terminal. */}
+                                or used to seed the next run once terminal. Pi has no permission modes. */}
+                            {!isPiTask && (
                                 <ComposerModePicker
                                     selectedMode={selectedMode}
                                     onModeChange={setMode}
                                     modes={getModesForRuntimeAdapter(composerAdapter)}
                                 />
-                                <ComposerModelEffortPickers
-                                    models={offeredModels}
-                                    selectedModel={selectedModel}
-                                    defaultModel={defaultModel}
-                                    isDefaultModelLoading={myConfigLoading}
-                                    selectedEffort={selectedEffort}
-                                    onModelChange={setModel}
-                                    onEffortChange={setEffort}
-                                    // While the run is live its harness is fixed to whatever the sandbox booted; once
-                                    // terminal the next send starts a fresh run, which may pick any harness.
-                                    lockedRuntimeAdapter={isTerminal ? null : logicProps.currentRuntimeAdapter}
-                                    onOpenDefaultSettings={() =>
-                                        router.actions.push(
-                                            urls.settings('environment-task-agents', 'task-agent-my-preference')
-                                        )
-                                    }
-                                />
-                            </fieldset>
-                        )}
+                            )}
+                            <ComposerModelEffortPickers
+                                models={offeredModels}
+                                selectedModel={selectedModel}
+                                defaultModel={isPiTask ? PI_DEFAULT_MODEL : defaultModel}
+                                isDefaultModelLoading={!isPiTask && myConfigLoading}
+                                selectedEffort={selectedEffort}
+                                onModelChange={setModel}
+                                onEffortChange={setEffort}
+                                singleHarness={isPiTask}
+                                // While the run is live its harness is fixed to whatever the sandbox booted; once
+                                // terminal the next send starts a fresh run, which may pick any harness.
+                                lockedRuntimeAdapter={isTerminal ? null : logicProps.currentRuntimeAdapter}
+                                // The run defaults configure ACP runs, so a Pi task has no default to open.
+                                onOpenDefaultSettings={
+                                    isPiTask
+                                        ? undefined
+                                        : () =>
+                                              router.actions.push(
+                                                  urls.settings('environment-task-agents', 'task-agent-my-preference')
+                                              )
+                                }
+                            />
+                        </fieldset>
                         <div className="ml-auto">
                             <ContextUsageChip />
                         </div>

@@ -3,9 +3,12 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
-import { OriginProduct } from '../types/taskTypes'
+import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
 import { type TurnTrailer } from '../utils/turnTrailers'
 import { ContextUsageChip } from './ContextUsageChip'
 import { FeedbackPromptTrailer } from './FeedbackPromptTrailer'
@@ -97,6 +100,7 @@ function RunSurfaceRoot({
     // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
     // exposing it to the slots. The runner already has the task loaded; an embed fetches it here.
     const { task, taskLoading, taskError, taskNotFound } = useValues(taskLogic({ taskId }))
+    const { featureFlags } = useValues(featureFlagLogic)
     const { loadTask } = useActions(taskLogic({ taskId }))
     useEffect(() => {
         // A pending surface (optimistic create) has no task yet, so don't fetch an empty id.
@@ -119,6 +123,10 @@ function RunSurfaceRoot({
         if (!hasThreadItems && !hasOptimisticClientStream) {
             return <RunLogSkeleton />
         }
+    }
+
+    if (task && isPiTaskRuntime(task.runtime) && !featureFlags[FEATURE_FLAGS.PI_WEB_SESSIONS]) {
+        return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
     }
 
     const isScout = task?.origin_product === OriginProduct.SIGNALS_SCOUT

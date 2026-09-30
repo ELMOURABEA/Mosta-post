@@ -65,6 +65,39 @@ describe('piWire', () => {
                 },
             },
         },
+        ...[
+            {
+                caseName: 'MCP proxy tool start names the proxied tool',
+                type: 'tool_call_started',
+                toolCall: { name: 'mcp', title: 'mcp', details: { kind: 'tool', name: 'linear_create_issue' } },
+                title: 'linear - Create issue',
+            },
+            {
+                caseName: 'MCP proxy search start',
+                type: 'tool_call_started',
+                toolCall: { name: 'mcp', title: 'mcp', details: { kind: 'search', query: 'issue' } },
+                title: 'Search MCP tools',
+            },
+            {
+                caseName: 'MCP proxy tool completion uses the tool descriptor',
+                type: 'tool_call_updated',
+                toolCall: {
+                    _meta: {
+                        posthog: {
+                            mcp: { server: 'linear', tool: 'create_issue', title: 'Create an issue' },
+                            mcpProxy: { kind: 'tool', name: 'linear_create_issue' },
+                        },
+                    },
+                },
+                title: 'linear - Create an issue',
+            },
+        ].map(({ caseName, type, toolCall, title }) => ({
+            caseName,
+            event: { type, timestamp: 1, toolCall: { id: 't3', ...toolCall } },
+            expected: expect.objectContaining({
+                params: { update: expect.objectContaining({ toolCallId: 't3', title }) },
+            }),
+        })),
         {
             caseName: 'tool update',
             event: { type: 'tool_call_updated', timestamp: 1, toolCall: { id: 't1', status: 'completed' } },
@@ -77,6 +110,14 @@ describe('piWire', () => {
             caseName: 'legacy aborted turn',
             event: { type: 'turn_completed', timestamp: 1, stopReason: 'aborted' },
             expected: { method: '_posthog/turn_complete', params: { stopReason: 'cancelled' } },
+        },
+        {
+            caseName: 'turn with usage',
+            event: { type: 'turn_completed', timestamp: 1, stopReason: 'end_turn', usage: { inputTokens: 5 } },
+            expected: {
+                method: '_posthog/turn_complete',
+                params: { stopReason: 'end_turn', usage: { inputTokens: 5 } },
+            },
         },
         {
             caseName: 'runtime error',
