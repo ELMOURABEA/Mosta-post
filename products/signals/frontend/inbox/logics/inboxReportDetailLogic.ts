@@ -18,6 +18,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -763,12 +764,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         reportChecks: [
             null as SignalReportCheckApi[] | null,
             {
-                loadReportChecks: async () => {
+                loadReportChecks: async (_, breakpoint) => {
                     const response = await signalsReportChecksList(
                         String(teamLogic.values.currentTeamId),
                         props.reportId
                     )
-                    return response.results
+                    await breakpoint()
+                    return response.results.map((check) => {
+                        const current = values.reportChecks?.find((row) => row.id === check.id)
+                        // A response requested before a mutation must not undo its newer result.
+                        return current && dayjs(current.updated_at).isAfter(dayjs(check.updated_at)) ? current : check
+                    })
                 },
             },
         ],
@@ -1381,7 +1387,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions, asyncActions, values, props }) => ({
+    listeners(({ actions, asyncActions, values, props, selectors }) => ({
         approveReportCheck: async ({ checkId }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
@@ -1735,8 +1741,18 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 actions.loadReportDiff({ artefactId: commit.id })
             }
         },
-        loadReportTasksSuccess: () => {
-            if (!values.reportChecksLoading) {
+        loadReportTasksSuccess: (_, __, ___, previousState) => {
+            const before = selectors.reportTasks(previousState) ?? []
+            const settled = (values.reportTasks ?? []).some((entry) => {
+                const run = entry.task.latest_run
+                const prior = before.find((row) => row.task.id === entry.task.id)?.task.latest_run
+                return (
+                    !!run &&
+                    TERMINAL_RUN_STATUSES.includes(run.status) &&
+                    (prior?.id !== run.id || prior?.status !== run.status)
+                )
+            })
+            if (settled) {
                 actions.loadReportChecks()
             }
         },
@@ -1790,7 +1806,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         actions.loadReportArtefacts()
         actions.loadReportSignals()
         actions.loadAvailableReviewers()
-        // Task refreshes also reload checks so suggested replacements arrive before polling stops.
         actions.loadReportChecks()
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)

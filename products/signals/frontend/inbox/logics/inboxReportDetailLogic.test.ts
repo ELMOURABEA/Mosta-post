@@ -629,17 +629,61 @@ describe('inboxReportDetailLogic', () => {
         it('reloads replaced checks on the final task refresh before polling stops', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const replacement = { id: 'revised-check', status: 'pending', approved_at: null } as SignalReportCheckApi
+            let checkRequests = 0
             useMocks({
                 get: {
-                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [replacement] },
+                    '/api/projects/:team_id/signals/reports/:id/checks/': () => {
+                        checkRequests++
+                        return [200, { results: [replacement] }]
+                    },
                 },
             })
             logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.IN_PROGRESS)])
             await expectLogic(logic).toFinishAllListeners()
+            expect(checkRequests).toBe(0)
             logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.COMPLETED)])
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.shouldPollReportTasks).toBe(false)
             expect(logic.values.reportChecks).toEqual([replacement])
+            expect(checkRequests).toBe(1)
+            logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.COMPLETED)])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(checkRequests).toBe(1)
+        })
+
+        it('keeps a newer check mutation when an earlier list request returns', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const old = {
+                id: 'check-1',
+                status: 'active',
+                approved_at: null,
+                updated_at: '2026-09-29T00:00:00Z',
+            } as SignalReportCheckApi
+            let releaseResponse!: () => void
+            const responseReady = new Promise<void>((resolve) => {
+                releaseResponse = resolve
+            })
+            let requestStarted!: () => void
+            const requested = new Promise<void>((resolve) => {
+                requestStarted = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/checks/': async () => {
+                        requestStarted()
+                        await responseReady
+                        return [200, { results: [old] }]
+                    },
+                },
+            })
+            logic.actions.loadReportChecks()
+            await requested
+            const approved = { ...old, approved_at: '2026-09-30T00:00:00Z', updated_at: '2026-09-30T00:00:00Z' }
+            logic.actions.loadReportChecksSuccess([approved])
+            releaseResponse()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.reportChecksError).toBeNull()
+            expect(logic.values.reportChecks).toEqual([approved])
         })
     })
 })
