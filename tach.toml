@@ -210,6 +210,17 @@ from = [
     "products.alerts",
 ]
 
+# backend.comparison holds the correspondence contract a source implements to have its own
+# verdicts compared against the platform's, so every source imports it. It is a facade surface by
+# every test the repo applies. Fold it into facade, and delete this block.
+[[interfaces]]
+expose = [
+    "backend\\.comparison.*",
+]
+from = [
+    "products.alerts",
+]
+
 [[modules]]
 path = "products.analytics_platform"
 depends_on = [
