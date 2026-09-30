@@ -134,8 +134,12 @@ from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
-from products.signals.backend.report_check_authoring import CheckCreationError, cancel_check, replace_metric_check
-from products.signals.backend.report_checks import DEFAULT_CHECK_SOAK_HOURS
+from products.signals.backend.report_check_authoring import (
+    CheckCreationError,
+    CheckQueryAccessError,
+    cancel_check,
+    replace_metric_check,
+)
 from products.signals.backend.report_claims import (
     actor_owns_claim,
     get_active_claim,
@@ -4670,7 +4674,14 @@ class SignalReportCheckViewSet(
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    queryset = SignalReportCheck.objects.unscoped().order_by("-created_at")
+    queryset = SignalReportCheck.objects.unscoped().order_by(
+        Case(
+            When(status__in=SignalReportCheck.OPEN_STATUSES, then=Value(0)),
+            default=Value(1),
+            output_field=IntegerField(),
+        ),
+        "-created_at",
+    )
     http_method_names = ["get", "post", "delete", "head", "options"]
 
     def _validated_report(self) -> SignalReport:
@@ -4747,9 +4758,12 @@ class SignalReportCheckViewSet(
                 title=data["title"],
                 rationale=data.get("rationale", ""),
                 config=data["config"],
-                soak_hours=data.get("soak_hours", (check.soak_minutes or DEFAULT_CHECK_SOAK_HOURS * 60) // 60),
+                soak_hours=data.get("soak_hours"),
                 attribution=resolve_request_attribution(request, self.team.id),
+                access_policy=ReportMetricAccessPolicy(request=request, team=self.team),
             )
+        except CheckQueryAccessError as error:
+            return Response({"error": str(error)}, status=status.HTTP_403_FORBIDDEN)
         except CheckCreationError as error:
             return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(replacement).data)

@@ -152,7 +152,7 @@ tools:
             - task:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: false
         title: Replace a metric follow-up check
         description: >

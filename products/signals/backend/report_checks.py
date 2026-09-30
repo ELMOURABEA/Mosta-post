@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from products.signals.backend.report_metrics import (
     MAX_METRIC_UNIT_LENGTH,
+    ReportMetric,
     ReportMetricKind,
     ReportMetricValueFormat,
     validate_live_metric_query,
@@ -174,8 +175,12 @@ class MetricThresholdConfig(BaseModel):
         default=None,
         description="The value observed when the check was written, recorded on each result for context.",
     )
-    metric_kind: ReportMetricKind = Field(default="custom", description="How to draw this measurement.")
-    value_format: ReportMetricValueFormat = Field(default="number", description="How to format measured values.")
+    metric_kind: ReportMetricKind | None = Field(
+        default=None, description="How to draw this measurement; copied from a referenced metric."
+    )
+    value_format: ReportMetricValueFormat | None = Field(
+        default=None, description="How to format measured values; copied from a referenced metric."
+    )
     unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH, description="Optional value suffix.")
 
     @field_validator("baseline_value", mode="before")
@@ -199,6 +204,15 @@ class MetricThresholdConfig(BaseModel):
     def source_must_name_a_metric_or_carry_a_query(self) -> MetricThresholdConfig:
         if self.metric_id is None and self.query is None:
             raise ValueError("provide a metric_id or a query")
+        if self.query is not None:
+            ReportMetric(
+                metric_id=self.metric_id or "check",
+                title="Follow-up measurement",
+                kind=self.metric_kind or "custom",
+                query=self.query,
+                value_format=self.value_format or "number",
+                unit=self.unit,
+            )
         return self
 
 

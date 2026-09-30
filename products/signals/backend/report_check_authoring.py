@@ -32,6 +32,7 @@ from products.signals.backend.report_check_execution import resolve_check_query
 from products.signals.backend.report_check_telemetry import capture_report_check_created
 from products.signals.backend.report_checks import (
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
+    DEFAULT_CHECK_SOAK_HOURS,
     MAX_ACTIVE_CHECKS_PER_REPORT,
     MAX_CHECK_HORIZON,
     CheckConfigValidationError,
@@ -40,12 +41,17 @@ from products.signals.backend.report_checks import (
     parse_check_config,
     soak_minutes_from_gap,
 )
+from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 
 logger = structlog.get_logger(__name__)
 
 
 class CheckCreationError(ValueError):
     """A check that cannot be written: a bad config, an unresolvable metric, or a full report."""
+
+
+class CheckQueryAccessError(PermissionError):
+    """The requester cannot read the measurement they would schedule."""
 
 
 def create_check(
@@ -164,26 +170,37 @@ def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
             stored_config["query"] = resolve_check_query(parsed, report)
         except ValueError as error:
             raise CheckCreationError(f"This check cannot run: {error}.") from None
-        stored_config = _with_metric_display(report, stored_config, parsed.metric_id)
+        for metric in report.metrics or []:
+            if isinstance(metric, dict) and metric.get("metric_id") == parsed.metric_id:
+                stored_config.update(
+                    metric_kind=metric.get("kind", "custom"),
+                    value_format=metric.get("value_format", "number"),
+                    unit=metric.get("unit"),
+                )
+                break
         try:
             parse_check_config(kind, stored_config)
         except CheckConfigValidationError as error:
             raise CheckCreationError(str(error)) from None
 
+    if isinstance(parsed, MetricThresholdConfig):
+        stored_config = _with_metric_display(report, stored_config, parsed.metric_id)
     return stored_config
 
 
 def _with_metric_display(report: SignalReport, config: dict, metric_id: str | None) -> dict:
     """Fill a metric check's display fields from the report metric it names, keeping any it already has."""
     filled = dict(config)
-    if metric_id is None:
-        return filled
     for metric in report.metrics or []:
         if isinstance(metric, dict) and metric.get("metric_id") == metric_id:
             filled.setdefault("metric_kind", metric.get("kind", "custom"))
             filled.setdefault("value_format", metric.get("value_format", "number"))
             filled.setdefault("unit", metric.get("unit"))
             break
+    if "comparison" in filled:
+        filled["metric_kind"] = filled.get("metric_kind") or "custom"
+        filled["value_format"] = filled.get("value_format") or "number"
+        filled.setdefault("unit", None)
     return filled
 
 
@@ -200,8 +217,9 @@ def create_checks_from_specs(
     leaves the old checks running.
     """
     try:
-        desired = [(spec, _stored_config(report, spec.kind, spec.config)) for spec in specs]
         with transaction.atomic():
+            report = SignalReport.objects.select_for_update().get(id=report.id, team_id=report.team_id)
+            desired = [(spec, _stored_config(report, spec.kind, spec.config)) for spec in specs]
             existing = list(
                 SignalReportCheck.objects.for_team(report.team_id).filter(
                     report_id=report.id, status__in=SignalReportCheck.OPEN_STATUSES
@@ -219,8 +237,7 @@ def create_checks_from_specs(
                         and check.rationale == spec.rationale
                         and check.kind == spec.kind
                         and max(1, round((check.soak_minutes or 60) / 60)) == spec.soak_hours
-                        # A check written before display fields existed lacks them, so fill them the
-                        # same way before comparing, or an unchanged claim would lose its approval.
+                        # Normalize legacy display fields so matching claims keep their approval.
                         and _with_metric_display(report, check.config, check.config.get("metric_id")) == config
                     ),
                     None,
@@ -231,7 +248,8 @@ def create_checks_from_specs(
                     retained_ids.add(match.id)
             for replaced in existing:
                 if replaced.id not in retained_ids:
-                    cancel_check(replaced, reason="replaced_by_research", attribution=attribution)
+                    if not cancel_check(replaced, reason="replaced_by_research", attribution=attribution):
+                        raise CheckCreationError("A check finished while research was reconciling its goals.")
             return [
                 create_check(
                     report=report,
@@ -260,24 +278,33 @@ def replace_metric_check(
     title: str,
     rationale: str,
     config: dict,
-    soak_hours: int,
+    soak_hours: int | None,
     attribution: ArtefactAttribution,
+    access_policy: ReportMetricAccessPolicy,
 ) -> SignalReportCheck:
     """Replace one open metric check atomically, keeping it live if the new check is invalid."""
     if check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD:
         raise CheckCreationError("Only metric checks can be replaced this way.")
     with transaction.atomic():
-        locked = SignalReportCheck.objects.for_team(check.team_id).select_related("report").get(id=check.id)
+        report = SignalReport.objects.select_for_update().get(id=check.report_id, team_id=check.team_id)
+        locked = SignalReportCheck.objects.for_team(check.team_id).select_for_update().get(id=check.id)
+        stored_config = _stored_config(report, SignalReportCheck.Kind.METRIC_THRESHOLD, config)
+        if not access_policy.may_read_query(stored_config):
+            raise CheckQueryAccessError("The measurement query is not available to you.")
         if not cancel_check(locked, reason="replaced_by_request", attribution=attribution):
             raise CheckCreationError("This check has already finished. Review its result before adding another.")
         return create_check(
-            report=locked.report,
+            report=report,
             title=title,
             rationale=rationale,
             kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
             config=config,
             attribution=attribution,
-            soak_minutes=soak_hours * 60,
+            soak_minutes=(
+                soak_hours * 60 if soak_hours is not None else locked.soak_minutes or DEFAULT_CHECK_SOAK_HOURS * 60
+            ),
+            run_interval_minutes=locked.run_interval_minutes,
+            runs_remaining=locked.runs_remaining,
         )
 
 

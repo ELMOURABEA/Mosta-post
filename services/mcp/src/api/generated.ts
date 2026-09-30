@@ -24488,10 +24488,13 @@ export namespace Schemas {
       Agent: 'agent',
     } as const;
 
-    export type ReportMetricKindEnum = typeof ReportMetricKindEnum[keyof typeof ReportMetricKindEnum];
+    /**
+     * How to draw this measurement; copied from a referenced metric.
+     */
+    export type MetricThresholdConfigMetricKind = typeof MetricThresholdConfigMetricKind[keyof typeof MetricThresholdConfigMetricKind] | null;
 
 
-    export const ReportMetricKindEnum = {
+    export const MetricThresholdConfigMetricKind = {
       AffectedUsers: 'affected_users',
       AffectedSessions: 'affected_sessions',
       Occurrences: 'occurrences',
@@ -24502,10 +24505,13 @@ export namespace Schemas {
       Custom: 'custom',
     } as const;
 
-    export type ValueFormatEnum = typeof ValueFormatEnum[keyof typeof ValueFormatEnum];
+    /**
+     * How to format measured values; copied from a referenced metric.
+     */
+    export type MetricThresholdConfigValueFormat = typeof MetricThresholdConfigValueFormat[keyof typeof MetricThresholdConfigValueFormat] | null;
 
 
-    export const ValueFormatEnum = {
+    export const MetricThresholdConfigValueFormat = {
       Number: 'number',
       Count: 'count',
       Percentage: 'percentage',
@@ -24542,10 +24548,10 @@ export namespace Schemas {
       comparison: CheckComparison;
       /** The value observed when the check was written, recorded on each result for context. */
       baseline_value?: number | null;
-      /** How to draw this measurement. */
-      metric_kind?: ReportMetricKindEnum;
-      /** How to format measured values. */
-      value_format?: ValueFormatEnum;
+      /** How to draw this measurement; copied from a referenced metric. */
+      metric_kind?: MetricThresholdConfigMetricKind;
+      /** How to format measured values; copied from a referenced metric. */
+      value_format?: MetricThresholdConfigValueFormat;
       /** Optional value suffix. */
       unit?: string | null;
     }
@@ -36079,6 +36085,30 @@ export namespace Schemas {
     }
 
     /**
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom
+     */
+    export type ReportMetricKindEnum = typeof ReportMetricKindEnum[keyof typeof ReportMetricKindEnum];
+
+
+    export const ReportMetricKindEnum = {
+      AffectedUsers: 'affected_users',
+      AffectedSessions: 'affected_sessions',
+      Occurrences: 'occurrences',
+      ConversionRate: 'conversion_rate',
+      ErrorRate: 'error_rate',
+      Duration: 'duration',
+      Revenue: 'revenue',
+      Custom: 'custom',
+    } as const;
+
+    /**
      * * `primary` - primary
      * * `supporting` - supporting
      */
@@ -36088,6 +36118,26 @@ export namespace Schemas {
     export const RoleEnum = {
       Primary: 'primary',
       Supporting: 'supporting',
+    } as const;
+
+    /**
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency
+     */
+    export type ValueFormatEnum = typeof ValueFormatEnum[keyof typeof ValueFormatEnum];
+
+
+    export const ValueFormatEnum = {
+      Number: 'number',
+      Count: 'count',
+      Percentage: 'percentage',
+      PercentageScaled: 'percentage_scaled',
+      Duration: 'duration',
+      Currency: 'currency',
     } as const;
 
     /**

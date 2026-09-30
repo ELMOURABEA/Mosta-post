@@ -512,6 +512,9 @@ class SignalReportSummaryWorkflow:
                         suggested_prompts=decision.suggested_prompts,
                         charts_enabled=decision.charts_enabled,
                         pending_reason=decision.pending_reason,
+                        checks=decision.checks,
+                        reconcile_checks=decision.reconcile_checks,
+                        checks_task_id=decision.research_task_id,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -875,8 +878,8 @@ def _observation_metrics(report: SignalReport, metrics: list[dict]) -> list[dict
     return observations
 
 
-def _write_research_checks(report: SignalReport, input: MarkReportReadyInput) -> None:
-    """Persist the research run's check specs on the report it just made ready.
+def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | MarkReportPendingInput") -> None:
+    """Persist the research run's check specs when its report settles.
 
     Best-effort as a whole: the report's prose is what this transition exists to write, so a spec
     the pipeline cannot store is dropped with a log rather than failing the transition and leaving
@@ -1198,6 +1201,9 @@ class MarkReportPendingInput:
     # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
     # ReportDecision.pending_reason.
     pending_reason: str | None = None
+    checks: list[dict[str, Any]] | None = None
+    reconcile_checks: bool = False
+    checks_task_id: str | None = None
 
 
 @temporalio.activity.defn
@@ -1228,6 +1234,7 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             # transaction) — not a model field, so it never persists past this save.
             report._pending_reason = input.pending_reason  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
+            _write_research_checks(report, input)
             return _ReportTransition(
                 run_count=report.run_count, chart_count=len(report.charts or []), was_duplicate=False
             )

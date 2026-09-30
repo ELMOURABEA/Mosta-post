@@ -26,6 +26,8 @@ It also skips a plan that carries its own open, draft, or unknown PR, because th
 
 Research writes measurable outcome goals as `metric_threshold` report checks and investigative goals as `agent` checks. A metric check stores a bounded live query, baseline, comparison, and soak window; the query and display format are copied from its report metric when it names one. The check waits for the report to resolve, then the coordinator runs it and records a verdict. A later research pass reviews every open check, preserves unchanged checks and their approvals, replaces changed checks, and retires omitted checks. A failed verification turn leaves existing checks alone. The Follow-up checks sidebar shows schedules and results for both kinds. The Expected impact section uses the same metric checks to show goals and charts. A person can mark those measurements "Looks good" as a quality signal; approval does not control scheduling or execution. The "Suggest different metrics" action starts a discussion that can atomically replace relevant open metric checks while preserving unrelated checks. A failed replacement leaves the original running, and a successful replacement starts unapproved. Report observation metrics remain separate from these forward-looking checks.
 
+Reports awaiting human input also retain their generated checks, pending resolution. Metric replacements require access to the query they schedule and preserve the remaining recurring runs and soak duration. The Expected impact section shows finished verdicts and refreshes after agent tasks change checks.
+
 ## Repository selection
 
 The shared repository selection prompt asks the agent to check the sources in the supplied context before choosing a repository.

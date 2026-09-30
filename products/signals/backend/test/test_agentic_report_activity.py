@@ -1145,7 +1145,10 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearch(monkeypatch, ateam):
+@pytest.mark.parametrize("has_previous_research", [False, True])
+async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearch(
+    monkeypatch, ateam, has_previous_research
+):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
     )
@@ -1163,7 +1166,7 @@ async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearc
     )
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report._load_previous_research",
-        AsyncMock(return_value=_build_research_output()),
+        AsyncMock(return_value=_build_research_output() if has_previous_research else None),
     )
     research_kwargs: dict[str, object] = {}
 
@@ -1267,8 +1270,9 @@ async def test_mark_report_ready_activity_applies_metrics(ateam, name, metrics, 
     "reconcile_checks,checks,retired",
     [(False, [], False), (True, None, False), (True, [], True)],
 )
+@pytest.mark.parametrize("pending_input", [False, True])
 async def test_ready_transition_only_reconciles_explicit_new_check_payloads(
-    ateam: Team, reconcile_checks: bool, checks: list[dict] | None, retired: bool
+    ateam: Team, reconcile_checks: bool, checks: list[dict] | None, retired: bool, pending_input: bool
 ) -> None:
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -1288,17 +1292,30 @@ async def test_ready_transition_only_reconciles_explicit_new_check_payloads(
         soak_minutes=7 * 24 * 60,
     )
 
-    await mark_report_ready_activity(
-        MarkReportReadyInput(
-            team_id=ateam.id,
-            report_id=str(report.id),
-            title="Title",
-            summary="Summary",
-            processed_signal_count=2,
-            checks=checks,
-            reconcile_checks=reconcile_checks,
+    if pending_input:
+        await mark_report_pending_input_activity(
+            MarkReportPendingInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                reason="Needs input",
+                checks=checks,
+                reconcile_checks=reconcile_checks,
+            )
         )
-    )
+    else:
+        await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                processed_signal_count=2,
+                checks=checks,
+                reconcile_checks=reconcile_checks,
+            )
+        )
 
     await database_sync_to_async(check.refresh_from_db)()
     assert (check.status == SignalReportCheck.Status.CANCELLED) is retired
@@ -1324,6 +1341,15 @@ async def test_mark_report_pending_input_activity_applies_metrics_with_draft_pro
             summary="Draft summary",
             reason="Needs input",
             metrics=[new_metric],
+            checks=[
+                {
+                    "title": "Affected users stay below five",
+                    "kind": "metric_threshold",
+                    "soak_hours": 24,
+                    "config": {"metric_id": "pending-affected-users", "comparison": {"operator": "lte", "value": 5}},
+                }
+            ],
+            reconcile_checks=True,
         )
     )
 
@@ -1332,6 +1358,9 @@ async def test_mark_report_pending_input_activity_applies_metrics_with_draft_pro
     assert stored.title == "Draft title"
     assert stored.summary == "Draft summary"
     assert [metric["metric_id"] for metric in stored.metrics] == ["pending-affected-users"]
+    check = await database_sync_to_async(SignalReportCheck.objects.for_team(ateam.id).get)(report=report)
+    assert check.status == SignalReportCheck.Status.PENDING
+    assert check.config["query"] == new_metric["query"]
 
 
 @pytest.mark.asyncio

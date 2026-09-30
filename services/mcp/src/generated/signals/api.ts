@@ -564,8 +564,6 @@ export const signalsReportChecksReplaceCreateBodyTitleMax = 200
 
 export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
 
-export const signalsReportChecksReplaceCreateBodyConfigOneMetricKindDefault = `custom`
-export const signalsReportChecksReplaceCreateBodyConfigOneValueFormatDefault = `number`
 export const signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax = 40
 
 export const signalsReportChecksReplaceCreateBodySoakHoursMax = 720
@@ -615,22 +613,28 @@ export const SignalsReportChecksReplaceCreateBody = () => zod.object({
                 .optional()
                 .describe('The value observed when the check was written, recorded on each result for context.'),
             metric_kind: zod
-                .enum([
-                    'affected_users',
-                    'affected_sessions',
-                    'occurrences',
-                    'conversion_rate',
-                    'error_rate',
-                    'duration',
-                    'revenue',
-                    'custom',
+                .union([
+                    zod.enum([
+                        'affected_users',
+                        'affected_sessions',
+                        'occurrences',
+                        'conversion_rate',
+                        'error_rate',
+                        'duration',
+                        'revenue',
+                        'custom',
+                    ]),
+                    zod.null(),
                 ])
-                .default(signalsReportChecksReplaceCreateBodyConfigOneMetricKindDefault)
-                .describe('How to draw this measurement.'),
+                .optional()
+                .describe('How to draw this measurement; copied from a referenced metric.'),
             value_format: zod
-                .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
-                .default(signalsReportChecksReplaceCreateBodyConfigOneValueFormatDefault)
-                .describe('How to format measured values.'),
+                .union([
+                    zod.enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency']),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('How to format measured values; copied from a referenced metric.'),
             unit: zod
                 .union([zod.string().max(signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax), zod.null()])
                 .optional()
@@ -2017,6 +2021,9 @@ export const SignalsScoutEditReportBody = () => zod
                                 'custom',
                             ])
                             .describe(
+                                '\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            )
+                            .describe(
                                 'What the value measures, independent of how it is formatted or drawn.\n\n\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
                             ),
                         role: zod
@@ -2045,6 +2052,9 @@ export const SignalsScoutEditReportBody = () => zod
                             ),
                         value_format: zod
                             .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
+                            .describe(
+                                '\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            )
                             .default(signalsScoutEditReportBodyMetricsItemValueFormatDefault)
                             .describe(
                                 'How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms\/s unit; revenue uses currency with an ISO currency unit.\n\n\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
@@ -2438,6 +2448,9 @@ export const SignalsScoutEmitReportBody = () => zod
                                 'custom',
                             ])
                             .describe(
+                                '\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            )
+                            .describe(
                                 'What the value measures, independent of how it is formatted or drawn.\n\n\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
                             ),
                         role: zod
@@ -2466,6 +2479,9 @@ export const SignalsScoutEmitReportBody = () => zod
                             ),
                         value_format: zod
                             .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
+                            .describe(
+                                '\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            )
                             .default(signalsScoutEmitReportBodyMetricsItemValueFormatDefault)
                             .describe(
                                 'How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms\/s unit; revenue uses currency with an ISO currency unit.\n\n\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
@@ -2804,8 +2820,6 @@ export const signalsScoutReportCheckCreateBodyTitleMax = 200
 
 export const signalsScoutReportCheckCreateBodyRationaleMax = 2000
 
-export const signalsScoutReportCheckCreateBodyConfigOneOneMetricKindDefault = `custom`
-export const signalsScoutReportCheckCreateBodyConfigOneOneValueFormatDefault = `number`
 export const signalsScoutReportCheckCreateBodyConfigOneOneUnitOneMax = 40
 
 export const signalsScoutReportCheckCreateBodyConfigOneTwoInstructionsMax = 2000
@@ -2876,22 +2890,35 @@ export const SignalsScoutReportCheckCreateBody = () => zod
                                 'The value observed when the check was written, recorded on each result for context.'
                             ),
                         metric_kind: zod
-                            .enum([
-                                'affected_users',
-                                'affected_sessions',
-                                'occurrences',
-                                'conversion_rate',
-                                'error_rate',
-                                'duration',
-                                'revenue',
-                                'custom',
+                            .union([
+                                zod.enum([
+                                    'affected_users',
+                                    'affected_sessions',
+                                    'occurrences',
+                                    'conversion_rate',
+                                    'error_rate',
+                                    'duration',
+                                    'revenue',
+                                    'custom',
+                                ]),
+                                zod.null(),
                             ])
-                            .default(signalsScoutReportCheckCreateBodyConfigOneOneMetricKindDefault)
-                            .describe('How to draw this measurement.'),
+                            .optional()
+                            .describe('How to draw this measurement; copied from a referenced metric.'),
                         value_format: zod
-                            .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
-                            .default(signalsScoutReportCheckCreateBodyConfigOneOneValueFormatDefault)
-                            .describe('How to format measured values.'),
+                            .union([
+                                zod.enum([
+                                    'number',
+                                    'count',
+                                    'percentage',
+                                    'percentage_scaled',
+                                    'duration',
+                                    'currency',
+                                ]),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('How to format measured values; copied from a referenced metric.'),
                         unit: zod
                             .union([
                                 zod.string().max(signalsScoutReportCheckCreateBodyConfigOneOneUnitOneMax),

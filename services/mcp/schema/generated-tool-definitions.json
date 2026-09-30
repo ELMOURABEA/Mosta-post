@@ -6677,7 +6677,7 @@
         "title": "Replace a metric follow-up check",
         "required_scopes": ["task:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false

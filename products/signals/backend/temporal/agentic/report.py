@@ -955,12 +955,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             )
             # 2. Load previous research if this is a re-promoted report
             previous_research = await _load_previous_research(input.team_id, input.report_id)
-            previous_checks = (
-                await database_sync_to_async(_load_previous_checks, thread_sensitive=False)(
-                    input.team_id, input.report_id
-                )
-                if previous_research
-                else []
+            previous_checks = await database_sync_to_async(_load_previous_checks, thread_sensitive=False)(
+                input.team_id, input.report_id
             )
             # 2b. Load the resolved report this one recurred from, if any, as extra research context
             resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
