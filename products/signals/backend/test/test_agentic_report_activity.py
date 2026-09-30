@@ -1324,6 +1324,14 @@ async def test_mark_report_pending_input_activity_applies_metrics_with_draft_pro
             summary="Draft summary",
             reason="Needs input",
             metrics=[new_metric],
+            checks=[
+                {
+                    "title": "Affected users stay under 10",
+                    "kind": "metric_threshold",
+                    "config": {"metric_id": "pending-affected-users", "comparison": {"operator": "lte", "value": 10}},
+                }
+            ],
+            reconcile_checks=True,
         )
     )
 
@@ -1332,6 +1340,12 @@ async def test_mark_report_pending_input_activity_applies_metrics_with_draft_pro
     assert stored.title == "Draft title"
     assert stored.summary == "Draft summary"
     assert [metric["metric_id"] for metric in stored.metrics] == ["pending-affected-users"]
+    checks = await database_sync_to_async(
+        lambda: list(SignalReportCheck.objects.for_team(ateam.id).filter(report_id=report.id))
+    )()
+    assert [(check.status, check.config["comparison"]["value"]) for check in checks] == [
+        (SignalReportCheck.Status.PENDING, 10)
+    ]
 
 
 @pytest.mark.asyncio

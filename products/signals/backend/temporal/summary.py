@@ -509,6 +509,9 @@ class SignalReportSummaryWorkflow:
                         source_products=source_products,
                         charts=decision.charts,
                         metrics=decision.metrics,
+                        checks=decision.checks,
+                        reconcile_checks=decision.reconcile_checks,
+                        checks_task_id=decision.research_task_id,
                         suggested_prompts=decision.suggested_prompts,
                         charts_enabled=decision.charts_enabled,
                         pending_reason=decision.pending_reason,
@@ -875,8 +878,8 @@ def _observation_metrics(report: SignalReport, metrics: list[dict]) -> list[dict
     return observations
 
 
-def _write_research_checks(report: SignalReport, input: MarkReportReadyInput) -> None:
-    """Persist the research run's check specs on the report it just made ready.
+def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | MarkReportPendingInput") -> None:
+    """Persist the research run's check specs on the report it just made ready or pending input.
 
     Best-effort as a whole: the report's prose is what this transition exists to write, so a spec
     the pipeline cannot store is dropped with a log rather than failing the transition and leaving
@@ -1191,6 +1194,10 @@ class MarkReportPendingInput:
     revise_measurement_plan_metric_ids: list[str] | None = None
     retire_measurement_plan_metric_ids: list[str] | None = None
     previous_measurement_plan_ids: dict[str, str] | None = None
+    # See MarkReportReadyInput.checks: same transaction, same replay-safe defaults.
+    checks: list[dict[str, Any]] | None = None
+    reconcile_checks: bool = False
+    checks_task_id: str | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None
     # See MarkReportReadyInput.charts_enabled — reported, never stored.
@@ -1228,6 +1235,9 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             # transaction) — not a model field, so it never persists past this save.
             report._pending_reason = input.pending_reason  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
+            # After the metrics write, for the reason given in mark_report_ready_activity. The report
+            # has not resolved, so each check is stored pending until the resolve arms it.
+            _write_research_checks(report, input)
             return _ReportTransition(
                 run_count=report.run_count, chart_count=len(report.charts or []), was_duplicate=False
             )
