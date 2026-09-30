@@ -4,6 +4,7 @@ export const PI_EXTENSION_UI_META_KEY = 'piExtensionUi'
 export const PI_EXTENSION_CONFIRM_OPTION_ID = 'confirm'
 export const PI_EXTENSION_CANCEL_OPTION_ID = 'cancel'
 const PI_MCP_ALLOW_ONCE_OPTION_ID = 'allow'
+const PI_MCP_REJECT_HINT = 'Blocks this tool call. The agent keeps working.'
 
 const PI_BUILTIN_TOOL_NAMES: Record<string, string> = {
     read: 'Read',
@@ -190,7 +191,16 @@ function extensionQuestionRequest(message: Record<string, unknown>, id: string, 
                 kind: 'question',
                 _meta: {
                     codeToolKind: 'question',
-                    questions: [{ question: title, multiSelect: false, options: choices.map((label) => ({ label })) }],
+                    questions: [
+                        {
+                            question: title,
+                            multiSelect: false,
+                            options: choices.map((label) => ({ label })),
+                            ...(optionalString(message.placeholder) ? { placeholder: message.placeholder } : {}),
+                            ...(typeof message.prefill === 'string' ? { defaultAnswer: message.prefill } : {}),
+                            ...(method === 'editor' ? { multiline: true } : {}),
+                        },
+                    ],
                     [PI_EXTENSION_UI_META_KEY]: { id, method },
                 },
             },
@@ -225,6 +235,10 @@ function extensionConfirmRequest(message: Record<string, unknown>, id: string): 
     }
 }
 
+function extensionNotice(message: string): Notification {
+    return { method: '_posthog/status', params: { status: 'extension_notice', isComplete: true, message } }
+}
+
 function extensionNotification(message: unknown): Notification | null {
     if (!isRecord(message)) {
         return null
@@ -235,7 +249,12 @@ function extensionNotification(message: unknown): Notification | null {
     }
     if (message.type === 'extension_error') {
         const error = optionalString(message.error)
-        return error ? { method: '_posthog/console', params: { message: error, level: 'error' } } : null
+        if (!error) {
+            return null
+        }
+        const extension = optionalString(message.extensionPath)?.split(/[\\/]/).pop()
+        const during = optionalString(message.event)
+        return extensionNotice(extension ? `${extension} failed${during ? ` during ${during}` : ''}: ${error}` : error)
     }
     if (message.type !== 'extension_ui_request') {
         return null
@@ -254,12 +273,13 @@ function extensionNotification(message: unknown): Notification | null {
             return extensionConfirmRequest(message, id)
         case 'notify': {
             const text = optionalString(message.message)
-            return text
-                ? {
-                      method: '_posthog/console',
-                      params: { message: text, level: optionalString(message.notifyType) ?? 'info' },
-                  }
-                : null
+            const level = optionalString(message.notifyType) ?? 'info'
+            if (!text) {
+                return null
+            }
+            return level === 'warning' || level === 'error'
+                ? extensionNotice(text)
+                : { method: '_posthog/console', params: { message: text, level } }
         }
         default:
             return { method: '_posthog/pi_extension_event', params: message }
@@ -306,17 +326,18 @@ export function translatePiWireEntry(value: unknown): StoredLogEntry | null {
     }
 }
 
-export function withPiOneShotAllow(frame: PermissionRequestFrame): PermissionRequestFrame {
-    const options = Array.isArray(frame.options) ? frame.options : []
-    if (
-        !options.some((option) => option.optionId === 'allow_always') ||
-        options.some((option) => option.kind === 'allow_once')
-    ) {
-        return frame
-    }
+export function withPiMcpOptions(frame: PermissionRequestFrame): PermissionRequestFrame {
+    const options = (Array.isArray(frame.options) ? frame.options : []).map((option) =>
+        option.kind.startsWith('reject') ? { ...option, _meta: { ...option._meta, hint: PI_MCP_REJECT_HINT } } : option
+    )
+    const needsOneShotAllow =
+        options.some((option) => option.optionId === 'allow_always') &&
+        !options.some((option) => option.kind === 'allow_once')
     return {
         ...frame,
-        options: [{ optionId: PI_MCP_ALLOW_ONCE_OPTION_ID, name: 'Allow', kind: 'allow_once' }, ...options],
+        options: needsOneShotAllow
+            ? [{ optionId: PI_MCP_ALLOW_ONCE_OPTION_ID, name: 'Allow', kind: 'allow_once' }, ...options]
+            : options,
     }
 }
 

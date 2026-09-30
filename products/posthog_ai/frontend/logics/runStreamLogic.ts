@@ -80,7 +80,7 @@ import {
     isPiWireEntry,
     readPiExtensionUiMeta,
     translatePiWireEntry,
-    withPiOneShotAllow,
+    withPiMcpOptions,
 } from '../utils/piWire'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
@@ -1952,6 +1952,14 @@ export function foldLogToThread(
                     status,
                     isComplete: true,
                     errorMessage: stringifyOptional(params.error),
+                })
+            } else if (status === 'extension_notice') {
+                items.push({
+                    id: `status-${statusSeq++}`,
+                    type: 'status',
+                    status,
+                    isComplete: true,
+                    errorMessage: stringifyOptional(params.message),
                 })
             } else {
                 items.push({ id: `status-${statusSeq++}`, type: 'status', status, isComplete })
@@ -3829,7 +3837,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         }
                         parsed = translatePiWireEntry(parsed)
                     } else if (values.piRuntime && isPermissionRequestFrame(parsed)) {
-                        parsed = withPiOneShotAllow(parsed)
+                        parsed = withPiMcpOptions(parsed)
                     }
                     if (isNotificationFrame(parsed)) {
                         const marker =

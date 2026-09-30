@@ -5194,6 +5194,26 @@ describe('runStreamLogic', () => {
         })
     })
 
+    it('keeps the text of an extension notice on its status item', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/status', {
+                    status: 'extension_notice',
+                    isComplete: true,
+                    message: 'lint.ts failed during tool_call: crashed',
+                })
+            )
+        }).toFinishAllListeners()
+
+        expect(logic.values.threadItems).toEqual([
+            expect.objectContaining({
+                type: 'status',
+                status: 'extension_notice',
+                errorMessage: 'lint.ts failed during tool_call: crashed',
+            }),
+        ])
+    })
+
     describe('/clear inline items', () => {
         it('replaces the in-progress clearing spinner with the conversation_cleared divider', async () => {
             await expectLogic(logic, () => {

@@ -42,6 +42,9 @@ export function StatusItem({ item }: { item: ThreadItem }): JSX.Element {
             : "Couldn't compact the conversation"
         return <StatusLine icon={<IconWarning className="size-3" />}>{reason}</StatusLine>
     }
+    if (item.status === 'extension_notice' && item.errorMessage) {
+        return <StatusLine icon={<IconWarning className="size-3" />}>{item.errorMessage}</StatusLine>
+    }
     return <StatusLine>Status: {item.status}</StatusLine>
 }
 

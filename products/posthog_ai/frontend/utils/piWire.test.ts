@@ -1,4 +1,4 @@
-import { buildPiPermissionCommand, PI_EXTENSION_UI_META_KEY, translatePiWireEntry, withPiOneShotAllow } from './piWire'
+import { buildPiPermissionCommand, PI_EXTENSION_UI_META_KEY, translatePiWireEntry, withPiMcpOptions } from './piWire'
 
 describe('piWire', () => {
     test.each([
@@ -143,12 +143,36 @@ describe('piWire', () => {
         expect(translatePiWireEntry(entry)?.notification.method).toBe(method)
     })
 
+    test.each([
+        {
+            caseName: 'a warning notification',
+            entry: {
+                type: 'extension_ui_request',
+                id: 'e3',
+                method: 'notify',
+                message: 'Lint warnings',
+                notifyType: 'warning',
+            },
+            message: 'Lint warnings',
+        },
+        {
+            caseName: 'an extension failure',
+            entry: { type: 'extension_error', extensionPath: '/ext/lint.ts', event: 'tool_call', error: 'crashed' },
+            message: 'lint.ts failed during tool_call: crashed',
+        },
+    ])('shows $caseName as a notice in the thread', ({ entry, message }) => {
+        expect(translatePiWireEntry(entry)?.notification).toEqual({
+            method: '_posthog/status',
+            params: { status: 'extension_notice', isComplete: true, message },
+        })
+    })
+
     it('ignores entries that are not Pi wire entries', () => {
         expect(translatePiWireEntry({ type: 'notification', notification: { method: 'session/update' } })).toBeNull()
     })
 
     it('offers a one-shot allow on a Pi MCP permission request', () => {
-        const frame = withPiOneShotAllow({
+        const frame = withPiMcpOptions({
             type: 'permission_request',
             requestId: 'r1',
             options: [
@@ -157,6 +181,26 @@ describe('piWire', () => {
             ],
         })
         expect(frame.options?.map((option) => option.optionId)).toEqual(['allow', 'allow_always', 'reject'])
+        expect(frame.options?.find((option) => option.optionId === 'reject')?._meta).toEqual({
+            hint: 'Blocks this tool call. The agent keeps working.',
+        })
+    })
+
+    test.each([
+        { method: 'input', fields: { placeholder: 'Branch name' }, expected: { placeholder: 'Branch name' } },
+        {
+            method: 'editor',
+            fields: { prefill: 'Line one\nLine two' },
+            expected: { defaultAnswer: 'Line one\nLine two', multiline: true },
+        },
+    ])('carries the $method prompt defaults onto its question', ({ method, fields, expected }) => {
+        expect(
+            translatePiWireEntry({ type: 'extension_ui_request', id: 'e1', method, title: 'Branch?', ...fields })
+        ).toMatchObject({
+            notification: {
+                params: { toolCall: { _meta: { questions: [{ question: 'Branch?', options: [], ...expected }] } } },
+            },
+        })
     })
 
     test.each([
