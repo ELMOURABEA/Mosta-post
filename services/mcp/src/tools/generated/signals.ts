@@ -226,27 +226,6 @@ const inboxReportChecksList = (): ToolBase<
     },
 })
 
-const InboxReportChecksRetrieveSchema = () => {
-    const SignalsReportChecksRetrieveParams = orvalSchemas.SignalsReportChecksRetrieveParams()
-    return SignalsReportChecksRetrieveParams.omit({ project_id: true })
-}
-
-const inboxReportChecksRetrieve = (): ToolBase<
-    ReturnType<typeof InboxReportChecksRetrieveSchema>,
-    WithPostHogUrl<Schemas.SignalReportCheck>
-> => ({
-    name: 'inbox-report-checks-retrieve',
-    schema: InboxReportChecksRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportChecksRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SignalReportCheck>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/checks/${encodeURIComponent(String(params.id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/inbox/${params.report_id}`)
-    },
-})
-
 const InboxReportChecksReplaceSchema = () => {
     const SignalsReportChecksReplaceCreateBody = orvalSchemas.SignalsReportChecksReplaceCreateBody()
     const SignalsReportChecksReplaceCreateParams = orvalSchemas.SignalsReportChecksReplaceCreateParams()
@@ -282,6 +261,27 @@ const inboxReportChecksReplace = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const InboxReportChecksRetrieveSchema = () => {
+    const SignalsReportChecksRetrieveParams = orvalSchemas.SignalsReportChecksRetrieveParams()
+    return SignalsReportChecksRetrieveParams.omit({ project_id: true })
+}
+
+const inboxReportChecksRetrieve = (): ToolBase<
+    ReturnType<typeof InboxReportChecksRetrieveSchema>,
+    WithPostHogUrl<Schemas.SignalReportCheck>
+> => ({
+    name: 'inbox-report-checks-retrieve',
+    schema: InboxReportChecksRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportChecksRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalReportCheck>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/checks/${encodeURIComponent(String(params.id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.report_id}`)
     },
 })
 
@@ -2456,8 +2456,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
     'inbox-report-checks-create': inboxReportChecksCreate,
     'inbox-report-checks-list': inboxReportChecksList,
-    'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
     'inbox-report-checks-replace': inboxReportChecksReplace,
+    'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
     'inbox-reports-list': inboxReportsList,

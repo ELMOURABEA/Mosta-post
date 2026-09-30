@@ -36,16 +36,16 @@ tools:
             has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded
             automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote
             by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is
-            always a mistake), `note` (free-form: note). Follow-up goals live in report checks, not artefacts.
-            Status types are latest-wins — appending a new
-            version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation,
-            priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment`
-            (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status
-            judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents
-            pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON
-            object matching the chosen type and is validated against its schema. Writes are attributed to your task
-            automatically. Pass claim_id to associate the work with your current claim; stale or foreign claims are
-            rejected. Returns the created artefact including its id.
+            always a mistake), `note` (free-form: note). Follow-up goals live in report checks, not artefacts. Status
+            types are latest-wins — appending a new version supersedes the previous one as the report's canonical
+            status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation,
+            actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason),
+            `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the
+            canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses
+            them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is
+            validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate
+            the work with your current claim; stale or foreign claims are rejected. Returns the created artefact
+            including its id.
     inbox-report-artefacts-delete:
         operation: signals_report_artefacts_destroy
         enabled: true
@@ -145,20 +145,6 @@ tools:
             `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs
             and by the research pipeline, so this surface reads them and does not create them. `query` and
             `baseline_value` read as null when you cannot read the data they describe.
-    inbox-report-checks-retrieve:
-        operation: signals_report_checks_retrieve
-        enabled: true
-        scopes:
-            - task:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{params.report_id}'
-        title: Get a single check
-        description: >
-            Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts
-            themselves are `check_result` artefacts on the report, so read those through the artefact list.
     inbox-report-checks-replace:
         operation: signals_report_checks_replace_create
         enabled: true
@@ -173,7 +159,22 @@ tools:
             Replace one open metric check after investigating a better measure or threshold. Read the current check and
             report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a
             measured baseline. The old check stays live if the replacement fails validation. A successful replacement
-            starts unapproved and is scheduled independently of human approval. Do not use this to change an agent check.
+            starts unapproved and is scheduled independently of human approval. Do not use this to change an agent
+            check.
+    inbox-report-checks-retrieve:
+        operation: signals_report_checks_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.report_id}'
+        title: Get a single check
+        description: >
+            Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts
+            themselves are `check_result` artefacts on the report, so read those through the artefact list.
     inbox-reports-bulk-set-state:
         operation: signals_reports_bulk_state_create
         enabled: true
@@ -1210,6 +1211,9 @@ tools:
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
+    signals-report-checks-approve-create:
+        operation: signals_report_checks_approve_create
+        enabled: false
     signals-report-checks-destroy:
         operation: signals_report_checks_destroy
         enabled: false
@@ -1233,9 +1237,6 @@ tools:
         enabled: false
     signals-report-pr-review-comments-create:
         operation: signals_report_pr_review_comments_create
-        enabled: false
-    signals-reports-artefacts-activate-create:
-        operation: signals_reports_artefacts_activate_create
         enabled: false
     signals-reports-available-reviewers-retrieve:
         operation: signals_reports_available_reviewers_retrieve
