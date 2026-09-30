@@ -463,7 +463,7 @@ export interface inboxReportDetailLogicActions {
         reportArtefacts: SignalReportArtefact[]
         payload?: any
     }
-    loadReportChecks: () => any
+    loadReportChecks: () => void
     loadReportChecksFailure: (
         error: string,
         errorObject?: any
