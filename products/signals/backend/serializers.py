@@ -42,6 +42,7 @@ from products.signals.backend.report_checks import (
     MIN_CHECK_INTERVAL_MINUTES,
     MIN_CHECK_SOAK_HOURS,
     CheckConfigValidationError,
+    MetricThresholdConfig,
     parse_check_config,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -1862,6 +1863,11 @@ class SignalReportCheckConfigField(serializers.JSONField):
     """Kind-specific check configuration, validated against its kind's schema on every write."""
 
 
+@extend_schema_field(MetricThresholdConfig)  # type: ignore[arg-type]
+class MetricThresholdCheckConfigField(serializers.JSONField):
+    """Metric threshold check configuration, for requests that accept no other kind."""
+
+
 def redact_check_config(config: Mapping[str, object], policy: ReportMetricAccessPolicy) -> dict[str, object]:
     """Hide the data-bearing fields of a check config this viewer may not read.
 
@@ -1959,7 +1965,7 @@ class SignalReportCheckReplacementSerializer(serializers.Serializer):
     rationale = serializers.CharField(
         required=False, allow_blank=True, max_length=MAX_CHECK_RATIONALE_LENGTH, help_text="Why this check is better."
     )
-    config = SignalReportCheckConfigField(
+    config = MetricThresholdCheckConfigField(
         help_text="Metric threshold configuration, including a bounded query and comparison."
     )
     soak_hours = serializers.IntegerField(

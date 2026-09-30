@@ -491,15 +491,9 @@ export const signalsReportChecksReplaceCreateBodyTitleMax = 200
 
 export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
 
-export const signalsReportChecksReplaceCreateBodyConfigOneOneMetricKindDefault = `custom`
-export const signalsReportChecksReplaceCreateBodyConfigOneOneValueFormatDefault = `number`
-export const signalsReportChecksReplaceCreateBodyConfigOneOneUnitOneMax = 40
-
-export const signalsReportChecksReplaceCreateBodyConfigOneTwoInstructionsMax = 2000
-
-export const signalsReportChecksReplaceCreateBodyConfigOneTwoSkillNameOneMax = 200
-
-export const signalsReportChecksReplaceCreateBodyConfigOneTwoProbeHintsMax = 5
+export const signalsReportChecksReplaceCreateBodyConfigOneMetricKindDefault = `custom`
+export const signalsReportChecksReplaceCreateBodyConfigOneValueFormatDefault = `number`
+export const signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax = 40
 
 export const signalsReportChecksReplaceCreateBodySoakHoursMax = 720
 
@@ -511,101 +505,67 @@ export const SignalsReportChecksReplaceCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Why this check is better.'),
     config: zod
-        .union([
-            zod
+        .object({
+            metric_id: zod
+                .union([zod.string(), zod.null()])
+                .optional()
+                .describe(
+                    "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created."
+                ),
+            query: zod
+                .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                .optional()
+                .describe(
+                    'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.'
+                ),
+            comparison: zod
                 .object({
-                    metric_id: zod
-                        .union([zod.string(), zod.null()])
-                        .optional()
-                        .describe(
-                            "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created."
-                        ),
-                    query: zod
-                        .union([zod.record(zod.string(), zod.unknown()), zod.null()])
-                        .optional()
-                        .describe(
-                            'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.'
-                        ),
-                    comparison: zod
-                        .object({
-                            operator: zod.enum(['lte', 'gte', 'between']).describe('`lte`, `gte`, or `between`.'),
-                            value: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe('The bound for `lte` and `gte`; unused by `between`.'),
-                            bounds: zod
-                                .union([
-                                    zod.object({
-                                        lower: zod.number(),
-                                        upper: zod.number(),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('The inclusive range for `between`; unused by `lte` and `gte`.'),
-                        })
-                        .describe('What the measured value must satisfy to pass.'),
-                    baseline_value: zod
+                    operator: zod.enum(['lte', 'gte', 'between']).describe('`lte`, `gte`, or `between`.'),
+                    value: zod
                         .union([zod.number(), zod.null()])
                         .optional()
-                        .describe(
-                            'The value observed when the check was written, recorded on each result for context.'
-                        ),
-                    metric_kind: zod
-                        .enum([
-                            'affected_users',
-                            'affected_sessions',
-                            'occurrences',
-                            'conversion_rate',
-                            'error_rate',
-                            'duration',
-                            'revenue',
-                            'custom',
-                        ])
-                        .default(signalsReportChecksReplaceCreateBodyConfigOneOneMetricKindDefault)
-                        .describe('How to draw this measurement.'),
-                    value_format: zod
-                        .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
-                        .default(signalsReportChecksReplaceCreateBodyConfigOneOneValueFormatDefault)
-                        .describe('How to format measured values.'),
-                    unit: zod
+                        .describe('The bound for `lte` and `gte`; unused by `between`.'),
+                    bounds: zod
                         .union([
-                            zod.string().max(signalsReportChecksReplaceCreateBodyConfigOneOneUnitOneMax),
+                            zod.object({
+                                lower: zod.number(),
+                                upper: zod.number(),
+                            }),
                             zod.null(),
                         ])
                         .optional()
-                        .describe('Optional value suffix.'),
+                        .describe('The inclusive range for `between`; unused by `lte` and `gte`.'),
                 })
-                .describe(
-                    "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
-                ),
-            zod
-                .object({
-                    instructions: zod
-                        .string()
-                        .max(signalsReportChecksReplaceCreateBodyConfigOneTwoInstructionsMax)
-                        .describe("What the run must establish, in the author's own words."),
-                    skill_name: zod
-                        .union([
-                            zod.string().max(signalsReportChecksReplaceCreateBodyConfigOneTwoSkillNameOneMax),
-                            zod.null(),
-                        ])
-                        .optional()
-                        .describe(
-                            "Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored."
-                        ),
-                    probe_hints: zod
-                        .array(zod.string())
-                        .max(signalsReportChecksReplaceCreateBodyConfigOneTwoProbeHintsMax)
-                        .optional()
-                        .describe(
-                            'Concrete places to look, such as an issue id, a service name, or a query to repeat.'
-                        ),
-                })
-                .describe(
-                    'A check a scout run answers: re-probe the report\'s claim and record one verdict.\n\nThe kind for a claim no single number settles. A resolved error-tracking report is the usual\ncase: \"did the exception stop?\" needs the issue looked up, its recent events read, and the\nstack compared against what the fix changed, which is a run rather than a comparison.\n\nEverything here is prompt material a scout reads, so it is untrusted by construction: it renders\nin the run block the agent is told to weigh, never in the instructions it is told to follow. The\nverdict still comes back through `scout-check-record-result`, so instructions cannot widen what\na check run may write.\n\n``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,\nso it is optional: a check that names none runs on the fleet\'s follow-up scout\n(see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).'
-                ),
-        ])
+                .describe('What the measured value must satisfy to pass.'),
+            baseline_value: zod
+                .union([zod.number(), zod.null()])
+                .optional()
+                .describe('The value observed when the check was written, recorded on each result for context.'),
+            metric_kind: zod
+                .enum([
+                    'affected_users',
+                    'affected_sessions',
+                    'occurrences',
+                    'conversion_rate',
+                    'error_rate',
+                    'duration',
+                    'revenue',
+                    'custom',
+                ])
+                .default(signalsReportChecksReplaceCreateBodyConfigOneMetricKindDefault)
+                .describe('How to draw this measurement.'),
+            value_format: zod
+                .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
+                .default(signalsReportChecksReplaceCreateBodyConfigOneValueFormatDefault)
+                .describe('How to format measured values.'),
+            unit: zod
+                .union([zod.string().max(signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax), zod.null()])
+                .optional()
+                .describe('Optional value suffix.'),
+        })
+        .describe(
+            "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
+        )
         .describe('Metric threshold configuration, including a bounded query and comparison.'),
     soak_hours: zod
         .number()

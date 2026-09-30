@@ -2957,7 +2957,7 @@ export interface SignalReportCheckReplacementApi {
      */
     rationale?: string
     /** Metric threshold configuration, including a bounded query and comparison. */
-    config: SignalReportCheckConfigApi
+    config: MetricThresholdConfigApi
     /**
      * Hours after the report resolves before the replacement first runs. Defaults to the old check's soak.
      * @minimum 1
