@@ -200,6 +200,7 @@ function extensionQuestionRequest(message: Record<string, unknown>, id: string, 
 }
 
 function extensionConfirmRequest(message: Record<string, unknown>, id: string): Notification {
+    const title = optionalString(message.title) ?? 'The agent needs your confirmation'
     const detail = optionalString(message.message)
     return {
         method: '_posthog/permission_request',
@@ -207,16 +208,18 @@ function extensionConfirmRequest(message: Record<string, unknown>, id: string): 
             requestId: id,
             toolCall: {
                 toolCallId: `pi-extension-${id}`,
-                title: optionalString(message.title) ?? 'The agent needs your confirmation',
                 kind: 'other',
-                ...(detail
-                    ? { description: detail, content: [{ type: 'content', content: { type: 'text', text: detail } }] }
-                    : {}),
+                description: detail ? `${title}\n\n${detail}` : title,
                 _meta: { [PI_EXTENSION_UI_META_KEY]: { id, method: 'confirm' } },
             },
             options: [
                 { optionId: PI_EXTENSION_CONFIRM_OPTION_ID, name: 'Confirm', kind: 'allow_once' },
-                { optionId: PI_EXTENSION_CANCEL_OPTION_ID, name: 'Cancel', kind: 'reject_once' },
+                {
+                    optionId: PI_EXTENSION_CANCEL_OPTION_ID,
+                    name: 'Cancel',
+                    kind: 'reject_once',
+                    _meta: { hint: 'Declines this request. The agent keeps working.' },
+                },
             ],
         },
     }

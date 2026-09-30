@@ -1382,6 +1382,40 @@ describe('runStreamLogic', () => {
             expect(resolveToolCall(invocation!).resolvedKey).toBe('Read')
         })
 
+        it.each([
+            { caseName: 'hides a replayed request that a later turn end already closed', eventId: 'b-2', shown: false },
+            { caseName: 'shows a request raised after the last turn end', eventId: 'b-4', shown: true },
+        ])('$caseName', async ({ eventId, shown }) => {
+            let resolveLogs: (entries: unknown[]) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise<unknown[]>((resolve) => (resolveLogs = resolve)) as any
+            )
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', taskRuntime: 'pi' })
+            await flushPromises()
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(
+                {
+                    type: 'permission_request',
+                    event_id: eventId,
+                    requestId: 'mcp-1',
+                    toolCall: { toolCallId: 'mcp-1', _meta: { posthog: { toolName: 'mcp__linear__create_issue' } } },
+                    options: [
+                        { optionId: 'allow_always', name: 'Always allow', kind: 'allow_always' },
+                        { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
+                    ],
+                },
+                '1700-0'
+            )
+
+            resolveLogs([
+                { type: 'pi_run_started', timestamp: '2026-01-01T00:00:00Z', event_id: 'b-1' },
+                piEvent({ type: 'turn_completed', timestamp: 2, stopReason: 'end_turn' }, 'b-3'),
+            ])
+            await flushPromises()
+
+            expect(logic.values.pendingPermissionRequest?.requestId ?? null).toBe(shown ? 'mcp-1' : null)
+        })
+
         it('drops a live tool update that the persisted log already covers', () => {
             const persisted = translatePiWireEntry(
                 piEvent(
@@ -5398,6 +5432,7 @@ describe('runStreamLogic', () => {
                 body: {
                     jsonrpc: '2.0',
                     method: 'pi/rpc',
+                    id: expect.any(String),
                     params: {
                         command: {
                             id: expect.any(String),
@@ -5429,6 +5464,7 @@ describe('runStreamLogic', () => {
                 body: {
                     jsonrpc: '2.0',
                     method: 'pi/rpc',
+                    id: 'req-1',
                     params: { command: { type: 'extension_ui_response', id: 'req-1', confirmed: true } },
                 },
             },
@@ -5452,6 +5488,10 @@ describe('runStreamLogic', () => {
                 expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', body, {
                     signal: expect.any(AbortSignal),
                 })
+                const sent = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3]
+                if (sent.method === 'pi/rpc') {
+                    expect(sent.id).toBe(sent.params.command.id)
+                }
             }
         )
 

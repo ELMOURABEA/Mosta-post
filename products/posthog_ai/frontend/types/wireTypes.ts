@@ -73,11 +73,13 @@ export interface PermissionOption {
     kind: string
     /** `_meta.customInput === true` — the option accepts optional free-text feedback. */
     customInput?: boolean
+    hint?: string
 }
 
 /** Top-level permission frame hoisted onto the stream by the relay. */
 export interface PermissionRequestFrame {
     type: 'permission_request'
+    event_id?: string
     requestId?: string
     toolCallId?: string
     options?: PermissionOption[]

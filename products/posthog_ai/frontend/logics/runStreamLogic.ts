@@ -799,13 +799,14 @@ function parsePermissionOption(raw: unknown): PermissionOption | null {
         return null
     }
     const meta = r._meta
-    const customInput =
-        typeof meta === 'object' && meta !== null && (meta as Record<string, unknown>).customInput === true
+    const metaRecord = typeof meta === 'object' && meta !== null ? (meta as Record<string, unknown>) : {}
+    const customInput = metaRecord.customInput === true
     return {
         optionId,
         name: String(r.name ?? ''),
         kind,
         customInput,
+        ...(typeof metaRecord.hint === 'string' && metaRecord.hint ? { hint: metaRecord.hint } : {}),
     }
 }
 
@@ -1261,6 +1262,20 @@ class RunEventCoverage {
         const last = eventPosition(entry)
         return !!(range && first && last && range.first <= first.sequence && range.last >= last.sequence)
     }
+}
+
+function permissionEndedByLaterTurn(eventId: unknown, sourceRunId: string | undefined, log: RunLog): boolean {
+    const position = typeof eventId === 'string' ? parseAgentEventId(eventId) : null
+    if (!position) {
+        return false
+    }
+    return log.entries.some(({ entry }) => {
+        if (entry.notification.method !== '_posthog/turn_complete' || entry.source_run_id !== sourceRunId) {
+            return false
+        }
+        const end = entry.event_id ? parseAgentEventId(entry.event_id) : null
+        return !!end && end.boot === position.boot && end.sequence > position.sequence
+    })
 }
 
 function compareEntryPosition(left: StoredLogEntry, right: StoredLogEntry): number {
@@ -3555,6 +3570,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             const bufferedIds = new Set(session.buffer.flatMap((entry) => (entry.event_id ? [entry.event_id] : [])))
             // Rebuild state without publishing a partial transcript or repeating live reactions.
             cache.rebuildingHistory = true
+            cache.rebuildingLog = log
             cache.trackedToolInvocations = undefined
             try {
                 let reachedSuccessor = false
@@ -3581,6 +3597,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
             } finally {
                 cache.rebuildingHistory = false
+                cache.rebuildingLog = undefined
             }
             actions.replaceLog(log)
             cache.eventCoverage = new RunEventCoverage([
@@ -3866,7 +3883,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         if (
                             record &&
                             !values.seenPermissionRequestIds.has(record.requestId) &&
-                            !values.resolvedPermissionRequestIds.has(record.requestId)
+                            !values.resolvedPermissionRequestIds.has(record.requestId) &&
+                            !permissionEndedByLaterTurn(parsed.event_id, runId, values.log)
                         ) {
                             actions.routePermissionRequest(record)
                         }
@@ -4197,34 +4215,26 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     key,
                     { pauseOnPageHidden: false }
                 )
-                const piExtensionRequest = readPiExtensionUiMeta(record.rawToolCall.meta) !== null
-                const body: TaskRunCommandRequestApi =
-                    values.piRuntime || piExtensionRequest
-                        ? {
-                              jsonrpc: '2.0',
-                              method: 'pi/rpc',
-                              params: {
-                                  command: buildPiPermissionCommand(
-                                      {
-                                          requestId: record.requestId,
-                                          meta: record.rawToolCall.meta,
-                                          options: record.options,
-                                      },
-                                      { optionId, customInput, answers },
-                                      uuid()
-                                  ),
-                              },
-                          }
-                        : {
-                              jsonrpc: '2.0',
-                              method: 'permission_response',
-                              params: {
-                                  requestId: record.requestId,
-                                  optionId,
-                                  customInput,
-                                  answers: answers ? { ...answers } : undefined,
-                              },
-                          }
+                const piCommand =
+                    values.piRuntime || readPiExtensionUiMeta(record.rawToolCall.meta) !== null
+                        ? buildPiPermissionCommand(
+                              { requestId: record.requestId, meta: record.rawToolCall.meta, options: record.options },
+                              { optionId, customInput, answers },
+                              uuid()
+                          )
+                        : null
+                const body: TaskRunCommandRequestApi = piCommand
+                    ? { jsonrpc: '2.0', method: 'pi/rpc', id: piCommand.id, params: { command: piCommand } }
+                    : {
+                          jsonrpc: '2.0',
+                          method: 'permission_response',
+                          params: {
+                              requestId: record.requestId,
+                              optionId,
+                              customInput,
+                              answers: answers ? { ...answers } : undefined,
+                          },
+                      }
                 try {
                     await deliverPermissionResponse(
                         (signal) =>
@@ -4650,7 +4660,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     if (
                         record &&
                         !values.seenPermissionRequestIds.has(record.requestId) &&
-                        !values.resolvedPermissionRequestIds.has(record.requestId)
+                        !values.resolvedPermissionRequestIds.has(record.requestId) &&
+                        !permissionEndedByLaterTurn(
+                            entry.event_id ?? notification.params?.event_id,
+                            entry.source_run_id,
+                            (cache.rebuildingLog as RunLog | undefined) ?? values.log
+                        )
                     ) {
                         actions.routePermissionRequest(record, isReplay)
                     }
