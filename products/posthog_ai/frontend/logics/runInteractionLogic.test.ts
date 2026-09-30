@@ -14,6 +14,7 @@ import {
     tasksRunsCommandCreate,
     tasksWarmResumeCreate,
 } from 'products/tasks/frontend/generated/api'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { PermissionRequestRecord } from '../types/streamTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
@@ -1069,6 +1070,47 @@ describe('runInteractionLogic', () => {
         expect(logic.values.composerForm.draft).toBe('ship it')
         expect(logic.values.sending).toBe(false)
         expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
+    })
+
+    describe('Pi task', () => {
+        let piLogic: ReturnType<typeof runInteractionLogic.build>
+
+        beforeEach(() => {
+            logic.unmount()
+            piLogic = runInteractionLogic({
+                taskId: TASK_ID,
+                runId: RUN_ID,
+                onRunStarted,
+                taskRuntime: TaskRuntimeEnumApi.Pi,
+            })
+            piLogic.mount()
+        })
+
+        afterEach(() => {
+            piLogic.unmount()
+            logic.mount()
+        })
+
+        it('sends a follow-up without the model and mode commands the Pi relay rejects', async () => {
+            piLogic.actions.setModel('claude-opus-5-5')
+            piLogic.actions.setComposerFormValues({ draft: 'keep going' })
+            await expectLogic(piLogic, () => piLogic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([userMessageCommand('keep going')])
+        })
+
+        it('resumes a terminal run without runtime fields the Pi run serializer rejects', async () => {
+            setStatus('completed')
+            piLogic.actions.setComposerFormValues({ draft: 'continue from here' })
+            await expectLogic(piLogic, () => piLogic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect(tasksRunCreate).toHaveBeenCalledWith(
+                '997',
+                TASK_ID,
+                { resume_from_run_id: RUN_ID, pending_user_message: 'continue from here' },
+                expect.objectContaining({ signal: expect.any(AbortSignal) })
+            )
+        })
     })
 
     it('starts a fresh run seeded with the message when the run is terminal', async () => {

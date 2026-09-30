@@ -92,6 +92,7 @@ export function TaskRunChat({
                 ? runConfig.state.initial_permission_mode
                 : pendingInteraction?.props.currentMode,
         currentRuntimeAdapter: runConfig?.runtime_adapter ?? pendingInteraction?.props.currentRuntimeAdapter,
+        taskRuntime: task?.runtime ?? pendingInteraction?.props.taskRuntime,
         onRunStarted: (newRunId, handoff) => {
             if (handoff) {
                 continueWithRun(handoff)

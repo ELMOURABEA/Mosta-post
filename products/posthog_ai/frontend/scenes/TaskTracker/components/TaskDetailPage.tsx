@@ -7,7 +7,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { urls } from 'scenes/urls'
 
 import { nextTaskTitle } from '../../../lib/task-title'
-import { isPiTaskRuntime } from '../../../types/taskTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { TaskHeaderActionsSkeleton } from './taskDetailSkeletons'
@@ -76,7 +75,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
                         View PR
                     </LemonButton>
                 )}
-                {!isPiTaskRuntime(task.runtime) && !isLatestRunInProgress && !isLatestRunCompleted && (
+                {!isLatestRunInProgress && !isLatestRunCompleted && (
                     <LemonButton
                         type="primary"
                         size="small"

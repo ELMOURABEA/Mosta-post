@@ -24,6 +24,7 @@ import { ComposerModePicker } from '../../../components/composer/ComposerModePic
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { ContextUsageChip } from '../../../components/ContextUsageChip'
+import { isPiTaskRuntime } from '../../../types/taskTypes'
 
 export function TaskRunComposer({
     logicProps,
@@ -65,6 +66,7 @@ export function TaskRunComposer({
     // A live run's harness is whatever it booted on; once terminal the next run follows the picked model.
     const composerAdapter = logicProps.currentRuntimeAdapter ?? getRuntimeAdapterForModel(catalogue, selectedModel)
     const controlsReady = isTerminal || !!logicProps.currentRuntimeAdapter
+    const showRunControls = !isPiTaskRuntime(logicProps.taskRuntime)
     const {
         setComposerFormValues,
         enableTaskDraftPersistence,
@@ -102,7 +104,7 @@ export function TaskRunComposer({
     return (
         <div onFocusCapture={() => setComposerFocused(true)} onBlurCapture={() => setComposerFocused(false)}>
             <ComposerModeShortcut
-                disabled={!composerActive || !controlsReady}
+                disabled={!showRunControls || !composerActive || !controlsReady}
                 onCycle={() => setMode(cycleMode(composerAdapter, selectedMode))}
             />
             <Composer.Root
@@ -178,36 +180,38 @@ export function TaskRunComposer({
                         </Composer.Field>
                     </ComposerCommandMenu>
                     <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
-                        <fieldset
-                            disabled={!controlsReady}
-                            className="flex flex-wrap items-center gap-1 border-0 p-0 m-0 min-w-0"
-                        >
-                            {/* Mode + model/effort pickers: selection lives in the bound runInteractionLogic and is
-                            applied when the message is sent — synced to the running agent on a follow-up,
-                            or used to seed the next run once terminal. */}
-                            <ComposerModePicker
-                                selectedMode={selectedMode}
-                                onModeChange={setMode}
-                                modes={getModesForRuntimeAdapter(composerAdapter)}
-                            />
-                            <ComposerModelEffortPickers
-                                models={offeredModels}
-                                selectedModel={selectedModel}
-                                defaultModel={defaultModel}
-                                isDefaultModelLoading={myConfigLoading}
-                                selectedEffort={selectedEffort}
-                                onModelChange={setModel}
-                                onEffortChange={setEffort}
-                                // While the run is live its harness is fixed to whatever the sandbox booted; once
-                                // terminal the next send starts a fresh run, which may pick any harness.
-                                lockedRuntimeAdapter={isTerminal ? null : logicProps.currentRuntimeAdapter}
-                                onOpenDefaultSettings={() =>
-                                    router.actions.push(
-                                        urls.settings('environment-task-agents', 'task-agent-my-preference')
-                                    )
-                                }
-                            />
-                        </fieldset>
+                        {showRunControls && (
+                            <fieldset
+                                disabled={!controlsReady}
+                                className="flex flex-wrap items-center gap-1 border-0 p-0 m-0 min-w-0"
+                            >
+                                {/* Mode + model/effort pickers: selection lives in the bound runInteractionLogic and is
+                                applied when the message is sent — synced to the running agent on a follow-up,
+                                or used to seed the next run once terminal. */}
+                                <ComposerModePicker
+                                    selectedMode={selectedMode}
+                                    onModeChange={setMode}
+                                    modes={getModesForRuntimeAdapter(composerAdapter)}
+                                />
+                                <ComposerModelEffortPickers
+                                    models={offeredModels}
+                                    selectedModel={selectedModel}
+                                    defaultModel={defaultModel}
+                                    isDefaultModelLoading={myConfigLoading}
+                                    selectedEffort={selectedEffort}
+                                    onModelChange={setModel}
+                                    onEffortChange={setEffort}
+                                    // While the run is live its harness is fixed to whatever the sandbox booted; once
+                                    // terminal the next send starts a fresh run, which may pick any harness.
+                                    lockedRuntimeAdapter={isTerminal ? null : logicProps.currentRuntimeAdapter}
+                                    onOpenDefaultSettings={() =>
+                                        router.actions.push(
+                                            urls.settings('environment-task-agents', 'task-agent-my-preference')
+                                        )
+                                    }
+                                />
+                            </fieldset>
+                        )}
                         <div className="ml-auto">
                             <ContextUsageChip />
                         </div>

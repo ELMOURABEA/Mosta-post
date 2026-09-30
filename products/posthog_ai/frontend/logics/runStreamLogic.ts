@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -15,9 +16,11 @@ import {
     tasksRunsRetrieve,
     tasksRunsStreamTokenRetrieve,
 } from 'products/tasks/frontend/generated/api'
-import type {
-    TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
-    TaskRunDetailDTOApi,
+import {
+    type TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
+    type TaskRunCommandRequestApi,
+    type TaskRunDetailDTOApi,
+    TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
@@ -72,6 +75,13 @@ import {
     isTaskRunStateFrame,
     parseAvailableCommands,
 } from '../types/wireTypes'
+import {
+    buildPiPermissionCommand,
+    isPiWireEntry,
+    readPiExtensionUiMeta,
+    translatePiWireEntry,
+    withPiOneShotAllow,
+} from '../utils/piWire'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
 import { computeTurnTrailers } from '../utils/turnTrailers'
@@ -480,6 +490,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function normalizeNotificationEntry(entry: unknown): StoredLogEntry | null {
     if (isNotificationFrame(entry)) {
         return entry
+    }
+    if (isPiWireEntry(entry)) {
+        return translatePiWireEntry(entry)
     }
 
     // Older append_log callers wrote `{ notification }` directly, without the stream envelope.
@@ -1080,6 +1093,9 @@ function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: Store
             continue
         }
         eventIds.set(JSON.stringify([entry.source_run_id, entry.event_id]), index)
+        for (const coveredId of entry.covered_event_ids ?? []) {
+            eventIds.set(JSON.stringify([entry.source_run_id, coveredId]), index)
+        }
         if (!isAgentMessageEntry(entry) || typeof entry.first_event_id !== 'string' || !entry.first_event_id) {
             continue
         }
@@ -1175,6 +1191,9 @@ class RunEventCoverage {
             return
         }
         this.ids.add(JSON.stringify([entry.source_run_id, entry.event_id]))
+        for (const coveredId of entry.covered_event_ids ?? []) {
+            this.ids.add(JSON.stringify([entry.source_run_id, coveredId]))
+        }
         // Neutral notifications can occur inside a coalesced text range without being superseded.
         if (!isAgentMessageEntry(entry)) {
             return
@@ -1904,12 +1923,14 @@ export function foldLogToThread(
         if (method === '_posthog/status') {
             const status = String(params.status ?? '')
             const isComplete = params.isComplete === true
-            if (isComplete && (status === 'compacting' || status === 'clearing')) {
+            if (isComplete && (status === 'compacting' || status === 'clearing' || status === 'retrying')) {
                 items = items.filter((item) => !isPendingStatus(item, status))
-            } else if (status === 'clearing_failed') {
+            } else if (status === 'clearing_failed' || status === 'compacting_failed') {
                 // A failed clear emits no `conversation_cleared` marker, so retire the spinner
                 // here and report the outcome in its place.
-                items = items.filter((item) => !isPendingStatus(item, 'clearing'))
+                items = items.filter(
+                    (item) => !isPendingStatus(item, status === 'clearing_failed' ? 'clearing' : 'compacting')
+                )
                 items.push({
                     id: `status-${statusSeq++}`,
                     type: 'status',
@@ -2137,6 +2158,7 @@ export interface runStreamLogicValues {
     pendingPermissionRequest: PermissionRequestRecord | null
     pendingRunMessage: PendingRunMessage | null
     permissionResponseRequestIds: Set<string>
+    piRuntime: boolean
     reconnectAttempt: number
     recoveryState: {
         attempt: number
@@ -2211,12 +2233,14 @@ export interface runStreamLogicActions {
         retainedMessage?: string
         runId: string
         taskId: string
+        taskRuntime?: string | null
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
+        taskRuntime?: string | null | undefined
         traceId?: string | undefined
     }
     cancelPermissionDelivery: () => {
@@ -2281,6 +2305,9 @@ export interface runStreamLogicActions {
     }
     markPermissionRequestSeen: (requestId: string) => {
         requestId: string
+    }
+    markPiRuntime: () => {
+        value: true
     }
     markRunStarted: () => {
         value: true
@@ -2566,7 +2593,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
             justCreatedRun?: boolean
             traceId?: string
             retainedMessage?: string
+            taskRuntime?: string | null
         }) => payload,
+        markPiRuntime: true,
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
         /**
          * Internal: a replay snapshot finished loading and no stream will follow — clears the bootstrap
@@ -2894,6 +2923,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
         // The task id this instance last bootstrapped, so the `ingestAcpFrame` history-derived context
         // bookkeeping can attribute seen context blocks to the task. Null for an unattached optimistic
         // stream — those record nothing (their send path marks sent keys directly).
+        piRuntime: [
+            false,
+            {
+                bootstrapRun: (state, { taskRuntime }) =>
+                    taskRuntime === undefined ? state : taskRuntime === TaskRuntimeEnumApi.Pi,
+                markPiRuntime: () => true,
+            },
+        ],
         bootstrappedTaskId: [
             null as string | null,
             {
@@ -3488,6 +3525,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 )
             )
             session.check()
+            if (!values.piRuntime && entries.some(isPiWireEntry)) {
+                actions.markPiRuntime()
+            }
             // Django log-N cursors index the same object entries, including non-notification records.
             entries.filter(isRecord).forEach((raw, index) => {
                 const entry = normalizeNotificationEntry(raw)
@@ -3766,6 +3806,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     } catch {
                         return
                     }
+                    if (isPiWireEntry(parsed)) {
+                        if (!values.piRuntime) {
+                            actions.markPiRuntime()
+                        }
+                        parsed = translatePiWireEntry(parsed)
+                    } else if (values.piRuntime && isPermissionRequestFrame(parsed)) {
+                        parsed = withPiOneShotAllow(parsed)
+                    }
                     if (isNotificationFrame(parsed)) {
                         const marker =
                             parsed.notification.method === '_posthog/run_started'
@@ -3847,14 +3895,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     try {
                         let response: Response
                         for (;;) {
-                            const proxyTarget = values.streamViaProxyEnabled
-                                ? await session.request(
-                                      STREAM_REQUEST_TIMEOUT_MS,
-                                      (signal) =>
-                                          resolveStreamTarget(String(session.projectId), taskId, runId, true, signal),
-                                      controller.signal
-                                  )
-                                : null
+                            const proxyTarget =
+                                values.streamViaProxyEnabled || values.piRuntime
+                                    ? await session.request(
+                                          STREAM_REQUEST_TIMEOUT_MS,
+                                          (signal) =>
+                                              resolveStreamTarget(
+                                                  String(session.projectId),
+                                                  taskId,
+                                                  runId,
+                                                  true,
+                                                  signal
+                                              ),
+                                          controller.signal
+                                      )
+                                    : null
                             if (!ownsStream()) {
                                 return
                             }
@@ -4142,26 +4197,40 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     key,
                     { pauseOnPageHidden: false }
                 )
-                const params = {
-                    requestId: record.requestId,
-                    optionId,
-                    customInput,
-                    answers: answers ? { ...answers } : undefined,
-                }
+                const piExtensionRequest = readPiExtensionUiMeta(record.rawToolCall.meta) !== null
+                const body: TaskRunCommandRequestApi =
+                    values.piRuntime || piExtensionRequest
+                        ? {
+                              jsonrpc: '2.0',
+                              method: 'pi/rpc',
+                              params: {
+                                  command: buildPiPermissionCommand(
+                                      {
+                                          requestId: record.requestId,
+                                          meta: record.rawToolCall.meta,
+                                          options: record.options,
+                                      },
+                                      { optionId, customInput, answers },
+                                      uuid()
+                                  ),
+                              },
+                          }
+                        : {
+                              jsonrpc: '2.0',
+                              method: 'permission_response',
+                              params: {
+                                  requestId: record.requestId,
+                                  optionId,
+                                  customInput,
+                                  answers: answers ? { ...answers } : undefined,
+                              },
+                          }
                 try {
                     await deliverPermissionResponse(
                         (signal) =>
-                            tasksRunsCommandCreate(
-                                String(projectId),
-                                activeRun.taskId,
-                                activeRun.runId,
-                                {
-                                    jsonrpc: '2.0',
-                                    method: 'permission_response',
-                                    params,
-                                },
-                                { signal }
-                            ),
+                            tasksRunsCommandCreate(String(projectId), activeRun.taskId, activeRun.runId, body, {
+                                signal,
+                            }),
                         controller.signal
                     )
                     if (!controller.signal.aborted && !disposables.isDisposed) {
@@ -4538,6 +4607,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             run_id: activeRun?.runId,
                             task_id: activeRun?.taskId,
                             execution_type: 'sandbox',
+                            task_runtime: values.piRuntime ? TaskRuntimeEnumApi.Pi : TaskRuntimeEnumApi.Acp,
                             // The run-started frame carries no warmth signal and pre-warming isn't wired
                             // yet, so every run is a cold start. A later pre-warm hook flips this.
                             cold_start: true,

@@ -42,11 +42,13 @@ import {
     type ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
     type TaskRunDetailDTOApi,
+    type TaskRuntimeEnumApi,
     type WarmTaskResumeRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import type { PermissionRequestRecord, StagedAttachment } from '../types/streamTypes'
+import { isPiTaskRuntime } from '../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
 import type { PendingAttachment } from '../utils/attachments'
@@ -89,6 +91,7 @@ export interface RunInteractionLogicProps {
     currentMode?: string | null
     /** The harness the run booted on. Authoritative — a live run can't be moved to another one. */
     currentRuntimeAdapter?: string | null
+    taskRuntime?: TaskRuntimeEnumApi
     /** Called with the new run's id after a terminal-run send starts a fresh run, so the surface can
      * re-point selection to it (the run lifecycle / selection is a tasks-scene concern, injected here). */
     onRunStarted?: (runId: string, handoff?: RunContinuationHandoff) => void
@@ -1336,54 +1339,56 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // `set_config_option` command before the message rather than ride inside `user_message`. A
                     // failure here aborts the send (the catch restores the content); `setSent*` runs only after a
                     // successful sync so the next send retries an unsent change.
-                    const activeModel =
-                        values.sentModel ?? props.currentModel ?? values.defaultModel ?? DEFAULT_COMPOSER_MODEL
-                    const activeEffort = resolveEffortForModel(
-                        values.catalogue,
-                        values.sentEffort ?? props.currentEffort ?? values.defaultEffort,
-                        activeModel
-                    )
-                    if (values.selectedModel !== activeModel) {
-                        await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                            jsonrpc: '2.0',
-                            method: 'set_config_option',
-                            params: { configId: MODEL_CONFIG_ID, value: values.selectedModel },
-                        })
-                        if (!isCurrent()) {
-                            return
+                    if (!isPiTaskRuntime(props.taskRuntime)) {
+                        const activeModel =
+                            values.sentModel ?? props.currentModel ?? values.defaultModel ?? DEFAULT_COMPOSER_MODEL
+                        const activeEffort = resolveEffortForModel(
+                            values.catalogue,
+                            values.sentEffort ?? props.currentEffort ?? values.defaultEffort,
+                            activeModel
+                        )
+                        if (values.selectedModel !== activeModel) {
+                            await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                                jsonrpc: '2.0',
+                                method: 'set_config_option',
+                                params: { configId: MODEL_CONFIG_ID, value: values.selectedModel },
+                            })
+                            if (!isCurrent()) {
+                                return
+                            }
+                            actions.setSentModel(values.selectedModel)
                         }
-                        actions.setSentModel(values.selectedModel)
-                    }
-                    if (values.selectedEffort !== activeEffort) {
-                        await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                            jsonrpc: '2.0',
-                            method: 'set_config_option',
-                            params: { configId: EFFORT_CONFIG_ID, value: values.selectedEffort },
-                        })
-                        if (!isCurrent()) {
-                            return
+                        if (values.selectedEffort !== activeEffort) {
+                            await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                                jsonrpc: '2.0',
+                                method: 'set_config_option',
+                                params: { configId: EFFORT_CONFIG_ID, value: values.selectedEffort },
+                            })
+                            if (!isCurrent()) {
+                                return
+                            }
+                            actions.setSentEffort(values.selectedEffort)
                         }
-                        actions.setSentEffort(values.selectedEffort)
-                    }
-                    const modeAdapter = props.currentRuntimeAdapter ?? RuntimeAdapterEnumApi.Claude
-                    const lastKnownMode =
-                        values.sentMode ??
-                        getModeOption(values.currentMode)?.value ??
-                        getModeOption(props.currentMode)?.value
-                    const activeMode = lastKnownMode
-                        ? resolveModeForRuntimeAdapter(modeAdapter, lastKnownMode)
-                        : getDefaultModeForRuntimeAdapter(modeAdapter)
-                    if (values.selectedMode !== activeMode) {
-                        await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                            jsonrpc: '2.0',
-                            method: 'set_config_option',
-                            params: { configId: MODE_CONFIG_ID, value: values.selectedMode },
-                        })
-                        if (!isCurrent()) {
-                            return
+                        const modeAdapter = props.currentRuntimeAdapter ?? RuntimeAdapterEnumApi.Claude
+                        const lastKnownMode =
+                            values.sentMode ??
+                            getModeOption(values.currentMode)?.value ??
+                            getModeOption(props.currentMode)?.value
+                        const activeMode = lastKnownMode
+                            ? resolveModeForRuntimeAdapter(modeAdapter, lastKnownMode)
+                            : getDefaultModeForRuntimeAdapter(modeAdapter)
+                        if (values.selectedMode !== activeMode) {
+                            await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                                jsonrpc: '2.0',
+                                method: 'set_config_option',
+                                params: { configId: MODE_CONFIG_ID, value: values.selectedMode },
+                            })
+                            if (!isCurrent()) {
+                                return
+                            }
                         }
+                        actions.setSentMode(values.selectedMode)
                     }
-                    actions.setSentMode(values.selectedMode)
                     // A drain carries the files queued with its text, not whatever the composer holds now.
                     const sending = source === 'queue' ? values.queuedAttachments : values.stagedAttachments
                     let artifactIds: string[] = []
@@ -1535,16 +1540,19 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // from the finished run so the new run continues the thread, and carrying the picked model /
                     // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
                     // carries the new run as `run`; the consumer-provided `onRunStarted` re-points to it.
-                    const createRequest = buildRunCreateRequest(
-                        values.catalogue,
-                        values.selectedModel,
-                        values.selectedEffort,
-                        values.selectedMode,
-                        {
-                            resume_from_run_id: props.runId,
-                            pending_user_message: wrapWithPosthogContext(content, pendingContext),
-                        }
-                    )
+                    const resumeRequest = {
+                        resume_from_run_id: props.runId,
+                        pending_user_message: wrapWithPosthogContext(content, pendingContext),
+                    }
+                    const createRequest = isPiTaskRuntime(props.taskRuntime)
+                        ? resumeRequest
+                        : buildRunCreateRequest(
+                              values.catalogue,
+                              values.selectedModel,
+                              values.selectedEffort,
+                              values.selectedMode,
+                              resumeRequest
+                          )
                     // The task already exists here, so staged artifacts hold the files whether this request
                     // activates a warm run or cold-boots one.
                     // The queue rides along into the run this send starts, so its files come too.

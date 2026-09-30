@@ -5,7 +5,7 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
-import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
+import { OriginProduct } from '../types/taskTypes'
 import { type TurnTrailer } from '../utils/turnTrailers'
 import { ContextUsageChip } from './ContextUsageChip'
 import { FeedbackPromptTrailer } from './FeedbackPromptTrailer'
@@ -56,6 +56,7 @@ interface RunSurfaceContextValue {
     interaction: 'live' | 'read-only'
     /** Run created by a Signals scout — the context-usage line is suppressed for these. */
     isScout: boolean
+    taskRuntime?: string | null
 }
 
 const RunSurfaceContext = createContext<RunSurfaceContextValue | null>(null)
@@ -120,10 +121,6 @@ function RunSurfaceRoot({
         }
     }
 
-    if (task && isPiTaskRuntime(task.runtime)) {
-        return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
-    }
-
     const isScout = task?.origin_product === OriginProduct.SIGNALS_SCOUT
 
     return (
@@ -136,6 +133,7 @@ function RunSurfaceRoot({
                     conversationId,
                     interaction,
                     isScout,
+                    taskRuntime: task?.runtime,
                 }}
             >
                 <RunSurfaceBootstrap taskId={taskId} />
@@ -147,7 +145,7 @@ function RunSurfaceRoot({
 
 /** Drives the run bootstrap as a side effect; renders nothing. Kept separate so slots stay presentational. */
 function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
-    const { runId, interaction } = useRunSurfaceContext()
+    const { runId, interaction, taskRuntime } = useRunSurfaceContext()
     const { bootstrapRun, reset } = useActions(runStreamLogic)
     // The bootstrap decision reads logic-resident state (not a per-component ref) so it survives the
     // optimistic create-thread → detail-page component swap onto the same `streamKey` instance.
@@ -172,7 +170,7 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         if (awaitingOptimisticAttach) {
             // Attaching a freshly-created run to a seeded optimistic instance: skip the reset so the seed
             // survives, and take the fresh-run fast path. The live SSE echo dedups the seeded message.
-            bootstrapRun({ taskId, runId, justCreatedRun: true })
+            bootstrapRun({ taskId, runId, justCreatedRun: true, taskRuntime })
             return
         }
         // Reset first so a reused instance (stable streamKey, changed run) replays/streams the new run
@@ -180,8 +178,18 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         // `interaction` is in the deps so a status transition (live → terminal) re-bootstraps the right
         // mode — the bound logic re-keys on it, so `bootstrapRun`/`reset` are fresh references anyway.
         reset()
-        bootstrapRun({ taskId, runId })
-    }, [taskId, runId, interaction, bootstrappedRunId, awaitingOptimisticAttach, currentProjectId, bootstrapRun, reset])
+        bootstrapRun({ taskId, runId, taskRuntime })
+    }, [
+        taskId,
+        runId,
+        interaction,
+        taskRuntime,
+        bootstrappedRunId,
+        awaitingOptimisticAttach,
+        currentProjectId,
+        bootstrapRun,
+        reset,
+    ])
 
     return null
 }
