@@ -1848,12 +1848,20 @@ class TestResearchAuthoredChecks(APIBaseTest):
         assert older[0].status == SignalReportCheck.Status.CANCELLED
         assert newer[0].status == SignalReportCheck.Status.CANCELLED
 
-    def test_unchanged_research_check_keeps_approval_and_schedule(self) -> None:
+    @parameterized.expand([("current_config", False), ("config_written_before_display_fields", True)])
+    def test_unchanged_research_check_keeps_approval_and_schedule(self, _name: str, legacy_config: bool) -> None:
         existing = create_checks_from_specs(
             report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
         )[0]
         approved_at = timezone.now()
-        SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(approved_at=approved_at)
+        stored_config = existing.config
+        if legacy_config:
+            stored_config = {
+                key: value for key, value in stored_config.items() if key not in {"metric_kind", "value_format", "unit"}
+            }
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(
+            approved_at=approved_at, config=stored_config
+        )
 
         assert (
             create_checks_from_specs(report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system())

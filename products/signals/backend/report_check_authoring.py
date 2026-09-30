@@ -164,18 +164,27 @@ def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
             stored_config["query"] = resolve_check_query(parsed, report)
         except ValueError as error:
             raise CheckCreationError(f"This check cannot run: {error}.") from None
-        for metric in report.metrics or []:
-            if isinstance(metric, dict) and metric.get("metric_id") == parsed.metric_id:
-                stored_config.setdefault("metric_kind", metric.get("kind", "custom"))
-                stored_config.setdefault("value_format", metric.get("value_format", "number"))
-                stored_config.setdefault("unit", metric.get("unit"))
-                break
+        stored_config = _with_metric_display(report, stored_config, parsed.metric_id)
         try:
             parse_check_config(kind, stored_config)
         except CheckConfigValidationError as error:
             raise CheckCreationError(str(error)) from None
 
     return stored_config
+
+
+def _with_metric_display(report: SignalReport, config: dict, metric_id: str | None) -> dict:
+    """Fill a metric check's display fields from the report metric it names, keeping any it already has."""
+    filled = dict(config)
+    if metric_id is None:
+        return filled
+    for metric in report.metrics or []:
+        if isinstance(metric, dict) and metric.get("metric_id") == metric_id:
+            filled.setdefault("metric_kind", metric.get("kind", "custom"))
+            filled.setdefault("value_format", metric.get("value_format", "number"))
+            filled.setdefault("unit", metric.get("unit"))
+            break
+    return filled
 
 
 def create_checks_from_specs(
@@ -210,7 +219,9 @@ def create_checks_from_specs(
                         and check.rationale == spec.rationale
                         and check.kind == spec.kind
                         and max(1, round((check.soak_minutes or 60) / 60)) == spec.soak_hours
-                        and check.config == config
+                        # A check written before display fields existed lacks them, so fill them the
+                        # same way before comparing, or an unchanged claim would lose its approval.
+                        and _with_metric_display(report, check.config, check.config.get("metric_id")) == config
                     ),
                     None,
                 )
