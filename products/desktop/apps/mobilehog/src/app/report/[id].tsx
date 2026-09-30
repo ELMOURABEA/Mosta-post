@@ -2,11 +2,17 @@ import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
 import { isDismissedReport } from "@posthog/core/inbox/reportMembership";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
+import { useEffect } from "react";
 import { Linking, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Glass } from "@/components/Glass";
 import { CardButton, ReportDetail } from "@/components/ReportCard";
-import { useDismissReport, useReport, useStartReportTask } from "@/lib/reports";
+import {
+  useDismissReport,
+  useMarkReportRead,
+  useReport,
+  useStartReportTask,
+} from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
 export default function ReportScreen() {
@@ -15,6 +21,10 @@ export default function ReportScreen() {
   const { data: report, isLoading } = useReport(id);
   const dismiss = useDismissReport();
   const startTask = useStartReportTask();
+  const markRead = useMarkReportRead();
+  useEffect(() => {
+    if (id) markRead(id);
+  }, [id, markRead]);
 
   if (!report) {
     return (
