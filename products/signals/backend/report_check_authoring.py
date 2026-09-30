@@ -43,6 +43,8 @@ from products.signals.backend.report_checks import (
 
 logger = structlog.get_logger(__name__)
 
+_METRIC_DISPLAY_FIELDS = frozenset({"metric_kind", "value_format", "unit"})
+
 
 class CheckCreationError(ValueError):
     """A check that cannot be written: a bad config, an unresolvable metric, or a full report."""
@@ -164,7 +166,13 @@ def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
             stored_config["query"] = resolve_check_query(parsed, report)
         except ValueError as error:
             raise CheckCreationError(f"This check cannot run: {error}.") from None
-        stored_config = _with_metric_display(report, stored_config, parsed.metric_id)
+        # The query comes from the named metric, so its display fields do too. Values the caller
+        # sends could draw that query with another metric's format or unit.
+        stored_config = _with_metric_display(
+            report,
+            {key: value for key, value in stored_config.items() if key not in _METRIC_DISPLAY_FIELDS},
+            parsed.metric_id,
+        )
         try:
             parse_check_config(kind, stored_config)
         except CheckConfigValidationError as error:

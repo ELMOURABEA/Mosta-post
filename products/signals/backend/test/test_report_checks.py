@@ -818,9 +818,14 @@ class TestReportCheckAPI(APIBaseTest):
             {"metric_id": "checkout-errors", "title": "Checkout errors", "kind": "occurrences", "query": _PAGEVIEWS}
         ]
         self.report.save(update_fields=["metrics"])
-        stored = self._create(config=config)
+        stored = self._create(config={**config, "value_format": "percentage", "unit": "failure"})
         assert stored.config["metric_id"] == "checkout-errors"
         assert stored.config["query"] == _PAGEVIEWS
+        assert (stored.config["metric_kind"], stored.config["value_format"], stored.config["unit"]) == (
+            "occurrences",
+            "number",
+            None,
+        )
 
         # Rewriting the metric under the same id must not move the check's target.
         rewritten = trends_metric_query(series=[{"kind": "EventsNode", "event": "$autocapture"}])
