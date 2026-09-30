@@ -29,6 +29,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     ScannerCandidateQuery,
     WindowedCandidateQuery,
 )
+from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
     DEEP_SWEEP_MAX_EXECUTION_SECONDS,
@@ -148,6 +149,13 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
 
     started_at = time.monotonic()
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
+    variant_plan = variant_sampling_plan_for_scope(
+        scanner.team,
+        scope=scanner.experiment_scope(),
+        scanner_config=scanner.scanner_config,
+        sampling_rate=scanner.sampling_rate,
+    )
+    variant_rates = variant_plan.rates if variant_plan is not None else None
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
         query=query,
@@ -163,6 +171,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # Exclusion is applied below against the fetched batch instead.
         skip_negative_blocklists=True,
         scanner_id=str(scanner.id),
+        variant_sampling_rates=variant_rates,
     )
     try:
         batch = candidate_query.run_batch(limit)
@@ -209,6 +218,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
                 candidate_query,
                 deep_limit,
                 seconds_remaining=_seconds_left(started_at),
+                variant_sampling_rates=variant_rates,
             )
         except Exception:
             # Best-effort catch-up must never fail the tick: the fast pass has already found and
@@ -262,6 +272,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         priming_candidates=[
             CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in priming_candidates
         ],
+        variant_sampling_rates=variant_rates,
     )
 
 
@@ -345,6 +356,7 @@ def _deep_sweep(
     limit: int,
     *,
     seconds_remaining: float,
+    variant_sampling_rates: dict[str, float] | None = None,
 ) -> tuple[list[CandidateSession], _DeepProgress | None]:
     """Catch-up pass behind the fast watermark with the full events lookback.
 
@@ -417,6 +429,7 @@ def _deep_sweep(
         candidate_limit=limit,
         max_execution_time_seconds=budget,
         scanner_id=str(scanner.id),
+        variant_sampling_rates=variant_sampling_rates,
     )
     # Stamped before the query, so a pass that times out still counts against the cadence. Queryset
     # update rather than save(): `updated_at` means "the scanner was edited", which the skip above reads.
