@@ -143,18 +143,20 @@ describe('ReportExpectedImpact', () => {
         expect(logic.values.reportChecks?.every((check) => check.next_run_at === '2026-10-13T00:00:00Z')).toBe(true)
     })
 
-    it('shows range goals and does not offer approval or replacement for finished checks', () => {
+    it('shows range goals and verdicts, and does not offer approval or replacement for finished checks', () => {
         renderMeasurements([
             {
                 ...check,
                 status: 'passed',
                 config: { ...check.config, comparison: { operator: 'between', bounds: { lower: 2, upper: 8 } } },
             },
+            { ...check, id: 'failed', status: 'failed', approved_at: '2026-09-30T00:00:00Z' },
         ])
 
         expect(screen.getByText('Checkout errors stay below 5: between 2 users and 8 users')).toBeInTheDocument()
-        expect(screen.getByText('Still holds')).toBeInTheDocument()
-        expect(screen.queryByText(/Proposed measurement/)).not.toBeInTheDocument()
+        expect(screen.getByText(/Still holds/)).toBeInTheDocument()
+        expect(screen.getByText(/No longer holds/)).toBeInTheDocument()
+        expect(screen.queryByText(/(Proposed|Approved) measurement/)).not.toBeInTheDocument()
         expect(screen.getByText('Looks good').closest('button')).toHaveAttribute('aria-disabled', 'true')
         expect(screen.getByText('Suggest different metrics').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
