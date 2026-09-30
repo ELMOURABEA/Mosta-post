@@ -8575,6 +8575,9 @@ SQL
     column "occurred_at" {
       type = "DateTime64(6, 'UTC')"
     }
+    column "source_kind" {
+      type = "LowCardinality(String)"
+    }
     column "expires_at" {
       type    = "Date"
       default = "today() + toIntervalDay(90)"
@@ -12422,6 +12425,9 @@ SQL
     }
     column "occurred_at" {
       type = "DateTime64(6, 'UTC')"
+    }
+    column "source_kind" {
+      type = "LowCardinality(String)"
     }
     column "expires_at" {
       type    = "Date"
