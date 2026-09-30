@@ -1515,6 +1515,7 @@ class ScannerStatsByTypeSerializer(serializers.Serializer):
     classifier = ScannerTypeStatsSerializer()
     scorer = ScannerTypeStatsSerializer()
     summarizer = ScannerTypeStatsSerializer()
+    experiment = ScannerTypeStatsSerializer()
 
 
 class ScannerStatsResponseSerializer(serializers.Serializer):
@@ -1523,7 +1524,7 @@ class ScannerStatsResponseSerializer(serializers.Serializer):
     total = serializers.IntegerField(help_text="Total scanners on the team.")
     enabled = serializers.IntegerField(help_text="Number of enabled scanners on the team.")
     by_type = ScannerStatsByTypeSerializer(
-        help_text="Per-scanner-type breakdown (monitor / classifier / scorer / summarizer)."
+        help_text="Per-scanner-type breakdown (monitor / classifier / scorer / summarizer / experiment)."
     )
 
 
