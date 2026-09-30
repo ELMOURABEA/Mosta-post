@@ -231,6 +231,8 @@ export function InboxDetailFrame({
         trailingCharts,
         detailTab,
         reportTaskToOpen,
+        reportChecks,
+        reportChecksError,
     } = useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
@@ -329,7 +331,13 @@ export function InboxDetailFrame({
         : []
     const impactMetrics =
         supportingMetrics.length > 0 ? <ReportImpactMetrics reportId={report.id} metrics={supportingMetrics} /> : null
-    const expectedImpact = !summaryPending ? <ReportExpectedImpact report={report} reportUrl={reportUrl} /> : null
+    const hasMeasurements = reportChecks?.some(
+        (check) => check.kind === 'metric_threshold' && check.status !== 'cancelled'
+    )
+    const expectedImpact =
+        !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
+            <ReportExpectedImpact report={report} reportUrl={reportUrl} />
+        ) : null
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">

@@ -625,5 +625,21 @@ describe('inboxReportDetailLogic', () => {
 
             expect(artefactRequests).toBe(beforeKickoff + 1)
         })
+
+        it('reloads replaced checks on the final task refresh before polling stops', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const replacement = { id: 'revised-check', status: 'pending', approved_at: null } as SignalReportCheckApi
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [replacement] },
+                },
+            })
+            logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.IN_PROGRESS)])
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadReportTasksSuccess([linkedTask('other', TaskRunStatus.COMPLETED)])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.shouldPollReportTasks).toBe(false)
+            expect(logic.values.reportChecks).toEqual([replacement])
+        })
     })
 })

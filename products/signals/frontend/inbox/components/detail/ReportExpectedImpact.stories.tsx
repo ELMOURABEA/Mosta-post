@@ -45,21 +45,35 @@ const meta: Meta<typeof ReportExpectedImpact> = {
     parameters: { layout: 'centered', viewMode: 'story', mockDate: '2026-08-29' },
     args: { report, reportUrl: 'https://example.com/report' },
     decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/reports/:reportId/artefacts/': { results: [] },
-                '/api/projects/:id/signals/reports/:reportId/signals/': { signals: [] },
-                '/api/projects/:id/signals/reports/:reportId/checks/': { results: [check] },
-                '/api/projects/:id/signals/reports/available_reviewers/': [],
-            },
-            post: {
-                '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
-                '/api/projects/:id/signals/reports/:reportId/checks/:checkId/approve/': {
-                    ...check,
-                    approved_at: '2026-08-29T00:00:00Z',
+        (Story, context) =>
+            mswDecorator({
+                get: {
+                    '/api/projects/:id/signals/reports/:reportId/artefacts/': { results: [] },
+                    '/api/projects/:id/signals/reports/:reportId/signals/': { signals: [] },
+                    '/api/projects/:id/signals/reports/:reportId/checks/': context.parameters.loadFailure
+                        ? [500, {}]
+                        : {
+                              results: [
+                                  context.parameters.failed
+                                      ? {
+                                            ...check,
+                                            status: 'failed',
+                                            last_run_at: '2026-08-29T00:00:00Z',
+                                            last_outcome: 'failed',
+                                        }
+                                      : check,
+                              ],
+                          },
+                    '/api/projects/:id/signals/reports/available_reviewers/': [],
                 },
-            },
-        }),
+                post: {
+                    '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
+                    '/api/projects/:id/signals/reports/:reportId/checks/:checkId/approve/': {
+                        ...check,
+                        approved_at: '2026-08-29T00:00:00Z',
+                    },
+                },
+            })(Story, context),
         (Story, context) => (
             <section className={`${context.parameters.narrow ? 'w-[32rem]' : 'w-[48rem]'} max-w-full p-4`}>
                 <h2 className="text-lg font-semibold">Expected impact</h2>
@@ -74,3 +88,5 @@ type Story = StoryObj<typeof ReportExpectedImpact>
 
 export const MetricCheck: Story = {}
 export const Narrow: Story = { parameters: { narrow: true } }
+export const Failed: Story = { parameters: { failed: true } }
+export const LoadFailure: Story = { parameters: { loadFailure: true } }

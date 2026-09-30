@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -11,17 +11,18 @@ import { SignalReport } from '../../types'
 import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
 import { ReportCheckMetricChart } from './ReportCheckMetricChart'
 import { ReportCheckMetricSuggestionModal } from './ReportCheckMetricSuggestionModal'
-import { buildReportCheckRows } from './reportCheckPresentation'
+import { buildReportCheckRows, latestCheckExplanations } from './reportCheckPresentation'
 
 const MAX_VISIBLE_MEASUREMENTS = 6
 
 export function ReportExpectedImpact({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
     const [modalOpen, setModalOpen] = useState(false)
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { reportChecks, approvingCheckIds } = useValues(logic)
-    const { approveReportCheck } = useActions(logic)
+    const { reportChecks, reportChecksLoading, reportChecksError, reportArtefacts, approvingCheckIds } =
+        useValues(logic)
+    const { approveReportCheck, loadReportChecks } = useActions(logic)
     const { currentProjectId } = useValues(inboxTaskKickoffLogic)
-    const measurements = buildReportCheckRows(reportChecks ?? [], new Map())
+    const measurements = buildReportCheckRows(reportChecks ?? [], latestCheckExplanations(reportArtefacts ?? []))
         .filter(({ check }) => check.kind === 'metric_threshold' && check.status !== 'cancelled')
         .slice(0, MAX_VISIBLE_MEASUREMENTS)
         .flatMap((row) => {
@@ -30,14 +31,13 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                 return []
             }
             const config = check.config
-            const reportMetric = report.metrics?.find((metric) => metric.metric_id === config.metric_id)
             const metric: ReportMetricApi = {
                 metric_id: config.metric_id ?? check.id,
-                title: reportMetric?.title ?? check.title,
-                kind: config.metric_kind ?? reportMetric?.kind ?? 'custom',
+                title: check.title,
+                kind: config.metric_kind ?? 'custom',
                 query: config.query,
-                value_format: config.value_format ?? reportMetric?.value_format,
-                unit: config.unit === undefined ? reportMetric?.unit : config.unit,
+                value_format: config.value_format ?? 'number',
+                unit: config.unit,
                 goal_value: config.comparison.operator === 'between' ? null : config.comparison.value,
                 goal_direction: config.comparison.operator === 'lte' ? 'at_most' : 'at_least',
             }
@@ -58,8 +58,22 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
 
     return (
         <div className="flex flex-col gap-3 rounded-lg border p-4" data-attr="report-expected-impact">
+            {reportChecksError && (
+                <div className="flex flex-wrap items-center gap-2">
+                    <p className="m-0 text-secondary text-sm">{reportChecksError}</p>
+                    <LemonButton
+                        data-attr="report-expected-impact-retry"
+                        type="secondary"
+                        size="small"
+                        onClick={() => loadReportChecks()}
+                        loading={reportChecksLoading}
+                    >
+                        Try again
+                    </LemonButton>
+                </div>
+            )}
             {measurements.length ? (
-                measurements.map(({ check, config, metric, goal, detail }) => {
+                measurements.map(({ check, config, metric, goal, detail, tag, cancellable }) => {
                     const query = asReportMetricSeriesQuery(metric)
                     return (
                         <div key={check.id} className="flex flex-col gap-2">
@@ -67,8 +81,12 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                 {metric.title}: {goal}
                             </p>
                             <p className="m-0 text-secondary text-sm">
-                                {check.approved_at ? 'Approved measurement' : 'Proposed measurement'} · Goal for the
-                                full query window
+                                {cancellable ? (
+                                    <span>{check.approved_at ? 'Approved measurement' : 'Proposed measurement'}</span>
+                                ) : (
+                                    <LemonTag type={tag.type}>{tag.label}</LemonTag>
+                                )}
+                                <span> · Goal for the full query window</span>
                             </p>
                             {query ? (
                                 <ReportCheckMetricChart
@@ -99,43 +117,45 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                         </div>
                     )
                 })
-            ) : (
+            ) : !reportChecksError ? (
                 <p className="m-0 text-secondary text-sm">
                     {reportChecks === null ? 'Loading measurements…' : 'No metric follow-up checks yet.'}
                 </p>
+            ) : null}
+            {measurements.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                    <LemonButton
+                        data-attr="report-expected-impact-follow-up"
+                        type="primary"
+                        size="small"
+                        loading={approving}
+                        disabledReason={
+                            reportChecks === null
+                                ? 'Loading measurements…'
+                                : currentProjectId == null
+                                  ? 'Select a project to approve measurements.'
+                                  : pendingApproval.length === 0
+                                    ? unavailableMeasurements
+                                        ? 'The measurement query is not available to you.'
+                                        : 'No measurements awaiting approval.'
+                                    : undefined
+                        }
+                        tooltip="Approval is feedback. Checks run automatically."
+                        onClick={() => pendingApproval.forEach(({ check }) => approveReportCheck(check.id))}
+                    >
+                        Looks good
+                    </LemonButton>
+                    <LemonButton
+                        data-attr="report-expected-impact-suggest-metrics"
+                        type="secondary"
+                        size="small"
+                        disabledReason={openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined}
+                        onClick={() => setModalOpen(true)}
+                    >
+                        Suggest different metrics
+                    </LemonButton>
+                </div>
             )}
-            <div className="flex flex-wrap gap-2">
-                <LemonButton
-                    data-attr="report-expected-impact-follow-up"
-                    type="primary"
-                    size="small"
-                    loading={approving}
-                    disabledReason={
-                        reportChecks === null
-                            ? 'Loading measurements…'
-                            : currentProjectId == null
-                              ? 'Select a project to approve measurements.'
-                              : pendingApproval.length === 0
-                                ? unavailableMeasurements
-                                    ? 'The measurement query is not available to you.'
-                                    : 'No measurements awaiting approval.'
-                                : undefined
-                    }
-                    tooltip="Approval is feedback. Checks run automatically."
-                    onClick={() => pendingApproval.forEach(({ check }) => approveReportCheck(check.id))}
-                >
-                    Looks good
-                </LemonButton>
-                <LemonButton
-                    data-attr="report-expected-impact-suggest-metrics"
-                    type="secondary"
-                    size="small"
-                    disabledReason={openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined}
-                    onClick={() => setModalOpen(true)}
-                >
-                    Suggest different metrics
-                </LemonButton>
-            </div>
             <ReportCheckMetricSuggestionModal
                 report={report}
                 reportUrl={reportUrl}

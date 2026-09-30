@@ -329,6 +329,7 @@ export interface inboxReportDetailLogicValues {
     reportArtefactsLoading: boolean
     reportCharts: ReportChartApi[]
     reportChecks: SignalReportCheckApi[] | null
+    reportChecksError: string | null
     reportChecksLoading: boolean
     reportDiff: CommitDiffResponseApi | null
     reportDiffError: string | null
@@ -910,6 +911,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     })),
 
     reducers({
+        reportChecksError: [
+            null as string | null,
+            {
+                loadReportChecksSuccess: () => null,
+                loadReportChecksFailure: () => "Couldn't load the measurements.",
+            },
+        ],
         selectedPullRequestUrl: [null as string | null, { selectPullRequest: (_, { url }) => url }],
         // Checks whose cancel request is in flight, so each row's Stop button disables itself
         // without blocking a second row.
@@ -1726,6 +1734,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 actions.loadReportDiff({ artefactId: commit.id })
             }
         },
+        loadReportTasksSuccess: () => {
+            if (!values.reportChecksLoading) {
+                actions.loadReportChecks()
+            }
+        },
         // A PR task started from this pane is not in the artefact log the gate was computed from, so
         // refresh it. This is also what starts the task poll for a ready report, whose status alone
         // never gets one going.
@@ -1776,8 +1789,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         actions.loadReportArtefacts()
         actions.loadReportSignals()
         actions.loadAvailableReviewers()
-        // Loaded once per mount, unlike the artefact log: a check's soak window is measured in days
-        // and the coordinator's tick is coarse, so there is nothing for a poll to catch.
+        // Task refreshes also reload checks so suggested replacements arrive before polling stops.
         actions.loadReportChecks()
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)

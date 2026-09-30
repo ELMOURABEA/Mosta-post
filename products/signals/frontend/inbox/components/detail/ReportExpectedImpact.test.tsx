@@ -42,6 +42,9 @@ const check: SignalReportCheckApi = {
         query: reportMetricsFixture[0].query as Record<string, unknown>,
         comparison: { operator: 'lte', value: 5 },
         baseline_value: 20,
+        metric_kind: reportMetricsFixture[0].kind,
+        value_format: reportMetricsFixture[0].value_format,
+        unit: reportMetricsFixture[0].unit,
     },
     approved_at: null,
     next_run_at: '2026-10-13T00:00:00Z',
@@ -114,7 +117,8 @@ describe('ReportExpectedImpact', () => {
             { ...check, id: 'investigation', kind: 'agent', config: { instructions: 'Re-read the issue.' } },
         ])
 
-        expect(screen.getByText('Failed checkouts: at most 5 users')).toBeInTheDocument()
+        expect(screen.getByText('Checkout errors stay below 5: at most 5 users')).toBeInTheDocument()
+        expect(screen.queryByText(/Failed checkouts/)).not.toBeInTheDocument()
         expect(screen.getByText('Baseline: 20 users')).toBeInTheDocument()
         expect(screen.getAllByText('Chart')).toHaveLength(1)
         expect(screen.queryByText(/999/)).not.toBeInTheDocument()
@@ -148,7 +152,9 @@ describe('ReportExpectedImpact', () => {
             },
         ])
 
-        expect(screen.getByText('Failed checkouts: between 2 users and 8 users')).toBeInTheDocument()
+        expect(screen.getByText('Checkout errors stay below 5: between 2 users and 8 users')).toBeInTheDocument()
+        expect(screen.getByText('Still holds')).toBeInTheDocument()
+        expect(screen.queryByText(/Proposed measurement/)).not.toBeInTheDocument()
         expect(screen.getByText('Looks good').closest('button')).toHaveAttribute('aria-disabled', 'true')
         expect(screen.getByText('Suggest different metrics').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
@@ -161,5 +167,20 @@ describe('ReportExpectedImpact', () => {
         expect(screen.queryByText('View measurement query')).not.toBeInTheDocument()
         expect(screen.queryByText(/Baseline:/)).not.toBeInTheDocument()
         expect(screen.getByText('Looks good').closest('button')).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it('shows failed verdicts and offers a retry after checks fail to load', async () => {
+        renderMeasurements([{ ...check, status: 'failed', last_run_at: '2026-09-30T00:00:00Z' }])
+        expect(screen.getByText('No longer holds')).toBeInTheDocument()
+        expect(screen.queryByText(/Proposed measurement/)).not.toBeInTheDocument()
+        cleanup()
+        logic.actions.loadReportChecksSuccess([])
+        logic.actions.loadReportChecksFailure('Request failed')
+        render(<ReportExpectedImpact report={report} reportUrl="https://example.com/report-1" />)
+        expect(screen.getByText("Couldn't load the measurements.")).toBeInTheDocument()
+        expect(screen.queryByText('Looks good')).not.toBeInTheDocument()
+        await userEvent.setup().click(screen.getByText('Try again'))
+        await waitFor(() => expect(logic.values.reportChecksError).toBeNull())
+        await expectLogic(logic).toFinishAllListeners()
     })
 })
