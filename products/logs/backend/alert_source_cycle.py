@@ -28,6 +28,7 @@ from posthog.models import Team
 from products.alerts.backend.facade.contracts import (
     AlertDeliveryPreview,
     AlertEventKind,
+    FiringEpisode,
     GroupTransition,
     MuteReason,
     PlatformAlertCheckInput,
@@ -266,23 +267,30 @@ def _delivery(
         destination_names=tuple(destination.name for destination in destinations),
         # One transition with an empty grouping key. Logs does not group yet, and delivery
         # reads a list either way, so fan-out changes this call and nothing downstream.
-        transitions=(_transition(check, outcome),),
+        transitions=(_transition(check, outcome, episode=recorded.firing_episode),),
     )
 
 
-def _transition(check: PlatformAlertCheckInput, outcome: AlertCheckOutcome) -> GroupTransition:
+def _transition(
+    check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, episode: FiringEpisode | None
+) -> GroupTransition:
     """The facts a message states about one group.
 
     The condition is copied from the check rather than referenced, so a threshold edited
     between this and a retried send cannot change what the message claims was breached.
     `value` stays unset: this evaluation does not keep the measured count, and a message
     leaves the line out rather than stating a number it does not have.
+
+    The episode comes from the recorded outcome rather than from the alert row, so it names the
+    firing this check concerned. On a resolve the row has already left that firing behind, and
+    a message that read the row would have no thread to reply into.
     """
     return GroupTransition(
         grouping_key="",
         kind=AlertEventKind(_NOTIFICATION_EVENT_KINDS[outcome.notification]),
         previous_state=check.state,
         state=outcome.new_state.value,
+        episode_started_at=episode.started_at if episode else None,
         value=None,
         labels={},
         condition={

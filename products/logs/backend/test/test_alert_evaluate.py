@@ -82,11 +82,14 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        assert [t.kind for preview in evaluation.previews for t in preview.transitions] == [AlertEventKind.FIRING]
+        transitions = [t for preview in evaluation.previews for t in preview.transitions]
+        assert [t.kind for t in transitions] == [AlertEventKind.FIRING]
         with team_scope(self.team.id):
             alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
             configuration.refresh_from_db()
         assert alert.state == PlatformAlert.State.FIRING
+        # Delivery threads on this, so it has to name the same firing the row does.
+        assert transitions[0].episode_started_at == alert.firing_started_at
         assert alert.last_notified_at is not None
         # The schedule advanced, so the next tick does not rediscover this configuration.
         assert configuration.next_check_at is not None

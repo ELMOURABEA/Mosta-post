@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -8,7 +9,7 @@ from django.test import SimpleTestCase
 from products.alerts.backend.delivery.dispatch import deliver
 from products.alerts.backend.delivery.message import AlertMessage
 from products.alerts.backend.delivery.telemetry import record_delivery
-from products.alerts.backend.delivery.thread_store import NullThreadStore
+from products.alerts.backend.delivery.thread_store import NullThreadStore, ThreadKey
 from products.alerts.backend.delivery.transport import REPLY, DeliveryError, MessageHandle
 from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
@@ -19,14 +20,19 @@ from products.alerts.backend.facade.contracts import (
 )
 
 TARGET = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": 1, "slack_channel_id": "C-ENG"})
+FIRST_FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
+SECOND_FIRING = datetime(2026, 9, 30, 17, tzinfo=UTC)
 
 
-def _announcement(kind: AlertEventKind = AlertEventKind.FIRING) -> EvaluationAnnouncement:
+def _announcement(
+    kind: AlertEventKind = AlertEventKind.FIRING, episode_started_at: datetime | None = FIRST_FIRING
+) -> EvaluationAnnouncement:
     transition = GroupTransition(
         grouping_key="",
         kind=kind,
         previous_state="not_firing",
         state="firing",
+        episode_started_at=episode_started_at,
         value=300.0,
         labels={},
         condition={"threshold_count": 100, "threshold_operator": "above"},
@@ -62,15 +68,24 @@ class FakeTransport:
 
 
 class RecordingThreadStore(NullThreadStore):
-    def __init__(self) -> None:
-        self.remembered: list[MessageHandle] = []
+    """Keeps what a real store would keep, so the key dispatch builds is observable."""
 
-    def remember(self, *, handle: MessageHandle, **_: Any) -> None:
-        self.remembered.append(handle)
+    def __init__(self) -> None:
+        self.threads: dict[ThreadKey, MessageHandle] = {}
+
+    def handle_for(self, key: ThreadKey) -> MessageHandle | None:
+        return self.threads.get(key)
+
+    def remember(self, key: ThreadKey, handle: MessageHandle) -> None:
+        self.threads[key] = handle
+
+    @property
+    def remembered(self) -> list[MessageHandle]:
+        return list(self.threads.values())
 
 
 class TestDeliveryDispatch(SimpleTestCase):
-    def _deliver(self, transport: FakeTransport, store: Any) -> Any:
+    def _deliver(self, transport: FakeTransport, store: Any, announcement: Any = None) -> Any:
         with patch("products.alerts.backend.delivery.dispatch.record_delivery") as recorded:
             deliver(
                 transport=transport,
@@ -78,7 +93,7 @@ class TestDeliveryDispatch(SimpleTestCase):
                 team_id=2,
                 configuration_id="cfg-1",
                 target=TARGET,
-                announcement=_announcement(),
+                announcement=announcement or _announcement(),
             )
         return recorded
 
@@ -105,6 +120,28 @@ class TestDeliveryDispatch(SimpleTestCase):
                 )
 
         assert recorded.call_args.kwargs["succeeded"] is False
+
+    def test_a_resolve_replies_under_its_own_firing_rather_than_an_earlier_one(self) -> None:
+        store = RecordingThreadStore()
+        first = FakeTransport(handle=MessageHandle(external_ref={"ts": "morning"}))
+        self._deliver(first, store, _announcement(AlertEventKind.FIRING, FIRST_FIRING))
+
+        resolve = FakeTransport(handle=MessageHandle(external_ref={"ts": "resolve"}))
+        self._deliver(resolve, store, _announcement(AlertEventKind.RESOLVED, FIRST_FIRING))
+
+        second = FakeTransport(handle=MessageHandle(external_ref={"ts": "evening"}))
+        self._deliver(second, store, _announcement(AlertEventKind.FIRING, SECOND_FIRING))
+
+        assert [handle for _, handle in resolve.sends] == [MessageHandle(external_ref={"ts": "morning"})]
+        assert [handle for _, handle in second.sends] == [None]
+
+    def test_a_check_that_never_fired_starts_no_conversation(self) -> None:
+        store = RecordingThreadStore()
+        transport = FakeTransport()
+
+        self._deliver(transport, store, _announcement(AlertEventKind.ERRORED, None))
+
+        assert store.threads == {}
 
     def test_a_store_that_remembers_nothing_still_delivers(self) -> None:
         transport = FakeTransport()

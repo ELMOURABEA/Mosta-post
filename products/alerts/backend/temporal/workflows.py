@@ -108,6 +108,9 @@ async def alerts_platform_deliver_preview_activity(preview: AlertDeliveryPreview
                 "kind": transition.kind.value,
                 "previous_state": transition.previous_state,
                 "state": transition.state,
+                "episode_started_at": transition.episode_started_at.isoformat()
+                if transition.episode_started_at
+                else None,
                 "value": transition.value,
                 "labels": transition.labels,
             }

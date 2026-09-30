@@ -226,6 +226,9 @@ class GroupTransition:
     kind: AlertEventKind
     previous_state: str
     state: str
+    # The firing this transition concerns, which on a resolve is the firing that just ended.
+    # None when no firing is involved, which is a failed or a turned-off check.
+    episode_started_at: datetime | None
     value: float | None
     labels: dict[str, str]
     condition: dict[str, Any]

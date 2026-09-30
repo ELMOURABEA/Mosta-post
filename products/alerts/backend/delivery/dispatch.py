@@ -7,9 +7,9 @@ reaches no transport.
 
 from products.alerts.backend.delivery.message import build_message
 from products.alerts.backend.delivery.telemetry import record_delivery
-from products.alerts.backend.delivery.thread_store import ThreadStore
+from products.alerts.backend.delivery.thread_store import ThreadKey, ThreadStore
 from products.alerts.backend.delivery.transport import DeliveryError, DeliveryTransport
-from products.alerts.backend.facade.contracts import AlertDestinationData, EvaluationAnnouncement
+from products.alerts.backend.facade.contracts import AlertDestinationData, EvaluationAnnouncement, GroupTransition
 
 
 def deliver(
@@ -23,14 +23,18 @@ def deliver(
 ) -> None:
     channel_target = transport.channel_target(target)
 
+    # A thread belongs to a transition rather than to a notification, because one message
+    # carries one transition and two groups in one notification are in two separate firings.
     for notification in announcement.notifications:
-        handle = thread_store.handle_for(
-            configuration_id=configuration_id,
-            notification_key=notification.notification_key,
-            provider=transport.provider,
-            channel_target=channel_target,
-        )
         for transition in notification.transitions:
+            key = _thread_key(
+                configuration_id=configuration_id,
+                notification_key=notification.notification_key,
+                provider=transport.provider,
+                channel_target=channel_target,
+                transition=transition,
+            )
+            handle = thread_store.handle_for(key) if key is not None else None
             message = build_message(announcement, transition)
             try:
                 sent = transport.deliver(team_id=team_id, target=target, message=message, in_reply_to=handle)
@@ -45,14 +49,32 @@ def deliver(
             record_delivery(
                 team_id=team_id, configuration_id=configuration_id, provider=transport.provider, succeeded=True
             )
-            # Only the first message of a conversation is remembered. A later one replies into
-            # it, and remembering the reply would move the thread onto itself.
-            if sent is not None and handle is None:
-                thread_store.remember(
-                    configuration_id=configuration_id,
-                    notification_key=notification.notification_key,
-                    provider=transport.provider,
-                    channel_target=channel_target,
-                    handle=sent,
-                )
-                handle = sent
+            # Only the first message of a conversation is remembered. Remembering a reply would
+            # move the thread onto itself, so a later message would reply to a reply.
+            if sent is not None and handle is None and key is not None:
+                thread_store.remember(key, sent)
+
+
+def _thread_key(
+    *,
+    configuration_id: str,
+    notification_key: str,
+    provider: str,
+    channel_target: str,
+    transition: GroupTransition,
+) -> ThreadKey | None:
+    """Which conversation this message belongs to, or None when it belongs to none.
+
+    A message about no firing, which is a failed or a turned-off check, continues no
+    conversation and starts none. Keying one on the absent firing would thread every such
+    message for a configuration into the first one, which is the defect the episode prevents.
+    """
+    if transition.episode_started_at is None:
+        return None
+    return ThreadKey(
+        configuration_id=configuration_id,
+        notification_key=notification_key,
+        provider=provider,
+        channel_target=channel_target,
+        episode_started_at=transition.episode_started_at,
+    )
