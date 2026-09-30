@@ -20,6 +20,110 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * * `$ai_trace_id` - $ai_trace_id
+     * * `$ai_session_id` - $ai_session_id
+     * * `$ai_parent_id` - $ai_parent_id
+     * * `$ai_span_id` - $ai_span_id
+     * * `$ai_span_type` - $ai_span_type
+     * * `$ai_generation_id` - $ai_generation_id
+     * * `$ai_experiment_id` - $ai_experiment_id
+     * * `$ai_span_name` - $ai_span_name
+     * * `$ai_trace_name` - $ai_trace_name
+     * * `$ai_prompt_name` - $ai_prompt_name
+     * * `$ai_model` - $ai_model
+     * * `$ai_provider` - $ai_provider
+     * * `$ai_framework` - $ai_framework
+     * * `$ai_total_tokens` - $ai_total_tokens
+     * * `$ai_input_tokens` - $ai_input_tokens
+     * * `$ai_output_tokens` - $ai_output_tokens
+     * * `$ai_text_input_tokens` - $ai_text_input_tokens
+     * * `$ai_text_output_tokens` - $ai_text_output_tokens
+     * * `$ai_image_input_tokens` - $ai_image_input_tokens
+     * * `$ai_image_output_tokens` - $ai_image_output_tokens
+     * * `$ai_audio_input_tokens` - $ai_audio_input_tokens
+     * * `$ai_audio_output_tokens` - $ai_audio_output_tokens
+     * * `$ai_video_input_tokens` - $ai_video_input_tokens
+     * * `$ai_video_output_tokens` - $ai_video_output_tokens
+     * * `$ai_reasoning_tokens` - $ai_reasoning_tokens
+     * * `$ai_cache_read_input_tokens` - $ai_cache_read_input_tokens
+     * * `$ai_cache_creation_input_tokens` - $ai_cache_creation_input_tokens
+     * * `$ai_web_search_count` - $ai_web_search_count
+     * * `$ai_input_cost_usd` - $ai_input_cost_usd
+     * * `$ai_output_cost_usd` - $ai_output_cost_usd
+     * * `$ai_total_cost_usd` - $ai_total_cost_usd
+     * * `$ai_request_cost_usd` - $ai_request_cost_usd
+     * * `$ai_web_search_cost_usd` - $ai_web_search_cost_usd
+     * * `$ai_audio_cost_usd` - $ai_audio_cost_usd
+     * * `$ai_image_cost_usd` - $ai_image_cost_usd
+     * * `$ai_video_cost_usd` - $ai_video_cost_usd
+     * * `$ai_latency` - $ai_latency
+     * * `$ai_time_to_first_token` - $ai_time_to_first_token
+     * * `$ai_is_error` - $ai_is_error
+     * * `$ai_error` - $ai_error
+     * * `$ai_error_type` - $ai_error_type
+     * * `$ai_error_normalized` - $ai_error_normalized
+     * * `$ai_input` - $ai_input
+     * * `$ai_output` - $ai_output
+     * * `$ai_output_choices` - $ai_output_choices
+     * * `$ai_input_state` - $ai_input_state
+     * * `$ai_output_state` - $ai_output_state
+     * * `$ai_tools` - $ai_tools
+     */
+    export type AIEventPropertyEnum = typeof AIEventPropertyEnum[keyof typeof AIEventPropertyEnum];
+
+
+    export const AIEventPropertyEnum = {
+      AiTraceId: '$ai_trace_id',
+      AiSessionId: '$ai_session_id',
+      AiParentId: '$ai_parent_id',
+      AiSpanId: '$ai_span_id',
+      AiSpanType: '$ai_span_type',
+      AiGenerationId: '$ai_generation_id',
+      AiExperimentId: '$ai_experiment_id',
+      AiSpanName: '$ai_span_name',
+      AiTraceName: '$ai_trace_name',
+      AiPromptName: '$ai_prompt_name',
+      AiModel: '$ai_model',
+      AiProvider: '$ai_provider',
+      AiFramework: '$ai_framework',
+      AiTotalTokens: '$ai_total_tokens',
+      AiInputTokens: '$ai_input_tokens',
+      AiOutputTokens: '$ai_output_tokens',
+      AiTextInputTokens: '$ai_text_input_tokens',
+      AiTextOutputTokens: '$ai_text_output_tokens',
+      AiImageInputTokens: '$ai_image_input_tokens',
+      AiImageOutputTokens: '$ai_image_output_tokens',
+      AiAudioInputTokens: '$ai_audio_input_tokens',
+      AiAudioOutputTokens: '$ai_audio_output_tokens',
+      AiVideoInputTokens: '$ai_video_input_tokens',
+      AiVideoOutputTokens: '$ai_video_output_tokens',
+      AiReasoningTokens: '$ai_reasoning_tokens',
+      AiCacheReadInputTokens: '$ai_cache_read_input_tokens',
+      AiCacheCreationInputTokens: '$ai_cache_creation_input_tokens',
+      AiWebSearchCount: '$ai_web_search_count',
+      AiInputCostUsd: '$ai_input_cost_usd',
+      AiOutputCostUsd: '$ai_output_cost_usd',
+      AiTotalCostUsd: '$ai_total_cost_usd',
+      AiRequestCostUsd: '$ai_request_cost_usd',
+      AiWebSearchCostUsd: '$ai_web_search_cost_usd',
+      AiAudioCostUsd: '$ai_audio_cost_usd',
+      AiImageCostUsd: '$ai_image_cost_usd',
+      AiVideoCostUsd: '$ai_video_cost_usd',
+      AiLatency: '$ai_latency',
+      AiTimeToFirstToken: '$ai_time_to_first_token',
+      AiIsError: '$ai_is_error',
+      AiError: '$ai_error',
+      AiErrorType: '$ai_error_type',
+      AiErrorNormalized: '$ai_error_normalized',
+      AiInput: '$ai_input',
+      AiOutput: '$ai_output',
+      AiOutputChoices: '$ai_output_choices',
+      AiInputState: '$ai_input_state',
+      AiOutputState: '$ai_output_state',
+      AiTools: '$ai_tools',
+    } as const;
+
     export type AIEventType = typeof AIEventType[keyof typeof AIEventType];
 
 
@@ -1867,6 +1971,18 @@ export namespace Schemas {
          */
       account_ids: string[];
     }
+
+    /**
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship
+     */
+    export type AccountPropertyPinKindEnum = typeof AccountPropertyPinKindEnum[keyof typeof AccountPropertyPinKindEnum];
+
+
+    export const AccountPropertyPinKindEnum = {
+      CustomProperty: 'custom_property',
+      Relationship: 'relationship',
+    } as const;
 
     /**
      * A team-defined account relationship type (CSM, Onboarding manager, ...).
@@ -41459,10 +41575,10 @@ export namespace Schemas {
       Product: 'product',
     } as const;
 
-    export type Kind1 = typeof Kind1[keyof typeof Kind1];
+    export type Kind2 = typeof Kind2[keyof typeof Kind2];
 
 
-    export const Kind1 = {
+    export const Kind2 = {
       ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
       ActionsNode: 'ActionsNode',
     } as const;
@@ -41473,7 +41589,7 @@ export namespace Schemas {
       /** Action ID. Required when kind is 'ActionsNode'. */
       id?: number | null;
       /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
-      kind?: Kind1 | null;
+      kind?: Kind2 | null;
       /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
       properties: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[];
     }
@@ -41487,10 +41603,10 @@ export namespace Schemas {
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
-    export type Kind = typeof Kind[keyof typeof Kind];
+    export type Kind1 = typeof Kind1[keyof typeof Kind1];
 
 
-    export const Kind = {
+    export const Kind1 = {
       EventsNode: 'EventsNode',
       ActionsNode: 'ActionsNode',
     } as const;
@@ -41500,7 +41616,7 @@ export namespace Schemas {
       event?: string | null;
       /** Action ID. Required for ActionsNode. */
       id?: number | null;
-      kind: Kind;
+      kind: Kind1;
       /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
       math?: ExperimentMetricMathType | null;
       /** Group type index to aggregate over. Required when math is 'unique_group'. */
@@ -41523,10 +41639,10 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
-    export type Kind2 = typeof Kind2[keyof typeof Kind2];
+    export type Kind3 = typeof Kind3[keyof typeof Kind3];
 
 
-    export const Kind2 = {
+    export const Kind3 = {
       EventsNode: 'EventsNode',
       ActionsNode: 'ActionsNode',
       ExperimentExposureNode: 'ExperimentExposureNode',
@@ -41538,7 +41654,7 @@ export namespace Schemas {
       /** Action ID. Required for ActionsNode. */
       id?: number | null;
       /** Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset. */
-      kind: Kind2;
+      kind: Kind3;
       /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
       math?: ExperimentMetricMathType | null;
       /** Group type index to aggregate over. Required when math is 'unique_group'. */
@@ -78057,6 +78173,16 @@ export namespace Schemas {
       campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferences;
     }
 
+    export interface TeamCustomerAnalyticsPinnedAccountProperty {
+      /** Definition type for this default pinned account property.
+       *
+       * * `custom_property` - Custom property
+       * * `relationship` - Relationship */
+      kind: AccountPropertyPinKindEnum;
+      /** Project-scoped custom property or relationship definition UUID. */
+      id: string;
+    }
+
     export interface TeamCustomerAnalyticsConfig {
       /** Event used as the activity signal (DAU/WAU/MAU). */
       activity_event?: unknown;
@@ -78073,6 +78199,8 @@ export namespace Schemas {
          * @nullable
          */
       account_group_type_index?: number | null;
+      /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
+      default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountProperty[];
     }
 
     export interface TeamWorkflowsConfig {
@@ -79304,8 +79432,10 @@ export namespace Schemas {
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnum;
-      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
+      /** Whether reviews can be started from this project's Code review page. */
       readonly can_trigger_reviews?: boolean;
+      /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
+      readonly show_internal_features?: boolean;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected?: boolean;
     }
@@ -81510,24 +81640,12 @@ export namespace Schemas {
       readonly requires_credential_review?: boolean;
     }
 
-    /**
-     * * `custom_property` - Custom property
-     * * `relationship` - Relationship
-     */
-    export type PinnedAccountPropertyKindEnum = typeof PinnedAccountPropertyKindEnum[keyof typeof PinnedAccountPropertyKindEnum];
-
-
-    export const PinnedAccountPropertyKindEnum = {
-      CustomProperty: 'custom_property',
-      Relationship: 'relationship',
-    } as const;
-
     export interface PinnedAccountProperty {
       /** Definition type for this pinned account property.
        *
        * * `custom_property` - Custom property
        * * `relationship` - Relationship */
-      kind: PinnedAccountPropertyKindEnum;
+      kind: AccountPropertyPinKindEnum;
       /** Team-scoped custom property or relationship definition UUID. */
       id: string;
     }
@@ -84565,8 +84683,59 @@ export namespace Schemas {
      * Request body for upserting a rule (create or update).
      */
     export interface PropertyAccessControlUpdate {
-      /** The property definition ID this rule applies to. */
-      property_definition_id: string;
+      /** The existing property definition ID. Provide this or ai_property. */
+      property_definition_id?: string;
+      /** A built-in AI event property. Creates its definition if missing. Provide this or property_definition_id.
+       *
+       * * `$ai_trace_id` - $ai_trace_id
+       * * `$ai_session_id` - $ai_session_id
+       * * `$ai_parent_id` - $ai_parent_id
+       * * `$ai_span_id` - $ai_span_id
+       * * `$ai_span_type` - $ai_span_type
+       * * `$ai_generation_id` - $ai_generation_id
+       * * `$ai_experiment_id` - $ai_experiment_id
+       * * `$ai_span_name` - $ai_span_name
+       * * `$ai_trace_name` - $ai_trace_name
+       * * `$ai_prompt_name` - $ai_prompt_name
+       * * `$ai_model` - $ai_model
+       * * `$ai_provider` - $ai_provider
+       * * `$ai_framework` - $ai_framework
+       * * `$ai_total_tokens` - $ai_total_tokens
+       * * `$ai_input_tokens` - $ai_input_tokens
+       * * `$ai_output_tokens` - $ai_output_tokens
+       * * `$ai_text_input_tokens` - $ai_text_input_tokens
+       * * `$ai_text_output_tokens` - $ai_text_output_tokens
+       * * `$ai_image_input_tokens` - $ai_image_input_tokens
+       * * `$ai_image_output_tokens` - $ai_image_output_tokens
+       * * `$ai_audio_input_tokens` - $ai_audio_input_tokens
+       * * `$ai_audio_output_tokens` - $ai_audio_output_tokens
+       * * `$ai_video_input_tokens` - $ai_video_input_tokens
+       * * `$ai_video_output_tokens` - $ai_video_output_tokens
+       * * `$ai_reasoning_tokens` - $ai_reasoning_tokens
+       * * `$ai_cache_read_input_tokens` - $ai_cache_read_input_tokens
+       * * `$ai_cache_creation_input_tokens` - $ai_cache_creation_input_tokens
+       * * `$ai_web_search_count` - $ai_web_search_count
+       * * `$ai_input_cost_usd` - $ai_input_cost_usd
+       * * `$ai_output_cost_usd` - $ai_output_cost_usd
+       * * `$ai_total_cost_usd` - $ai_total_cost_usd
+       * * `$ai_request_cost_usd` - $ai_request_cost_usd
+       * * `$ai_web_search_cost_usd` - $ai_web_search_cost_usd
+       * * `$ai_audio_cost_usd` - $ai_audio_cost_usd
+       * * `$ai_image_cost_usd` - $ai_image_cost_usd
+       * * `$ai_video_cost_usd` - $ai_video_cost_usd
+       * * `$ai_latency` - $ai_latency
+       * * `$ai_time_to_first_token` - $ai_time_to_first_token
+       * * `$ai_is_error` - $ai_is_error
+       * * `$ai_error` - $ai_error
+       * * `$ai_error_type` - $ai_error_type
+       * * `$ai_error_normalized` - $ai_error_normalized
+       * * `$ai_input` - $ai_input
+       * * `$ai_output` - $ai_output
+       * * `$ai_output_choices` - $ai_output_choices
+       * * `$ai_input_state` - $ai_input_state
+       * * `$ai_output_state` - $ai_output_state
+       * * `$ai_tools` - $ai_tools */
+      ai_property?: AIEventPropertyEnum;
       /** The access level to set for this rule.
        *
        * * `read_write` - read_write
@@ -90807,8 +90976,10 @@ export namespace Schemas {
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnum;
-      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
+      /** Whether reviews can be started from this project's Code review page. */
       readonly can_trigger_reviews: boolean;
+      /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
+      readonly show_internal_features: boolean;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected: boolean;
     }
