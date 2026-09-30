@@ -7,6 +7,7 @@ use crate::cohorts::cohort_operations::{
 };
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::{pool_names, PostgresRouter};
+use crate::flags::cache_builder::extract_direct_flag_dependency_ids;
 use crate::flags::config_v2::Config;
 use crate::flags::evaluate_v2::{Evaluation, EvaluationContext, Evaluator, PersonProperties};
 use crate::flags::flag_group_type_mapping::{
@@ -443,6 +444,14 @@ fn merge_distinct_id_into_person_properties(
         .entry("distinct_id".to_string())
         .or_insert_with(|| Value::String(distinct_id.to_string()));
     overrides
+}
+
+fn ids_of_failed_flags<'a>(
+    details: impl Iterator<Item = &'a FlagDetails> + 'a,
+) -> impl Iterator<Item = FeatureFlagId> + 'a {
+    details
+        .filter(|details| details.failed)
+        .map(|details| details.metadata.id)
 }
 
 impl FeatureFlagMatcher {
@@ -934,6 +943,12 @@ impl FeatureFlagMatcher {
         }
 
         // Step 3: Evaluate flags stage by stage in dependency order
+        // An unsupported flag also fails, but it joined `filtered_out_flag_ids` above, so its
+        // dependents read it as false.
+        let mut failed_flag_ids: HashSet<FeatureFlagId> =
+            ids_of_failed_flags(evaluated_flags_map.values())
+                .filter(|id| !self.filtered_out_flag_ids.contains(id))
+                .collect();
         for stage in evaluation_stages {
             let (level_evaluated_flags_map, level_errors) = self
                 .evaluate_flags_in_level(
@@ -944,9 +959,13 @@ impl FeatureFlagMatcher {
                     &overrides.hash_key_overrides,
                     &overrides.request_hash_key_override,
                     &flags_with_missing_deps,
+                    &failed_flag_ids,
                 )
                 .await?;
             errors_while_computing_flags |= level_errors;
+            if level_errors {
+                failed_flag_ids.extend(ids_of_failed_flags(level_evaluated_flags_map.values()));
+            }
             evaluated_flags_map.extend(level_evaluated_flags_map);
         }
 
@@ -1050,11 +1069,12 @@ impl FeatureFlagMatcher {
         hash_key_overrides: &Option<HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
         flags_with_missing_deps: &HashSet<i32>,
+        failed_flag_ids: &HashSet<FeatureFlagId>,
     ) -> Result<(HashMap<String, FlagDetails>, bool), FlagError> {
         let mut errors_while_computing_flags = false;
         let mut level_evaluated_flags_map = HashMap::new();
 
-        let flags_to_evaluate: Vec<FeatureFlag> = flags
+        let mut flags_to_evaluate: Vec<FeatureFlag> = flags
             .into_iter()
             .filter(|flag| {
                 !flag.deleted
@@ -1063,6 +1083,30 @@ impl FeatureFlagMatcher {
                     && !evaluated_flags_map.contains_key(&flag.key)
             })
             .collect();
+
+        // A flag that depends on a failed flag fails too. Without the failed flag's value, its
+        // `flag_evaluates_to` condition would read as a non-match, and SDKs would cache the
+        // resulting value.
+        if !failed_flag_ids.is_empty() {
+            flags_to_evaluate.retain(|flag| {
+                let Some(failed_dependency) = extract_direct_flag_dependency_ids(flag)
+                    .into_iter()
+                    .filter(|id| failed_flag_ids.contains(id))
+                    .min()
+                else {
+                    return true;
+                };
+                self.process_flag_result(
+                    flag,
+                    &Err(FlagError::DependencyFailed(failed_dependency.into())),
+                    &mut level_evaluated_flags_map,
+                    &mut errors_while_computing_flags,
+                    person_property_overrides,
+                    group_property_overrides,
+                );
+                false
+            });
+        }
 
         let eval_type = if flags_to_evaluate.len() >= self.parallel_eval_threshold {
             EvaluationType::Parallel
@@ -1192,16 +1236,17 @@ impl FeatureFlagMatcher {
                 *errors_while_computing_flags = true;
                 with_canonical_log(|log| log.flags_errored += 1);
 
-                if let FlagError::DependencyNotFound(dependency_type, dependency_id) = e {
-                    warn!(
+                match e {
+                    FlagError::DependencyNotFound(dependency_type, dependency_id) => warn!(
                         "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
                         flag.key, dependency_type, dependency_id, self.distinct_id, e
-                    );
-                } else {
-                    error!(
+                    ),
+                    // The failed dependency already logged its own error.
+                    FlagError::DependencyFailed(_) => {}
+                    _ => error!(
                         "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                         flag.key, self.distinct_id, e
-                    );
+                    ),
                 }
 
                 let reason = e.evaluation_error_code();

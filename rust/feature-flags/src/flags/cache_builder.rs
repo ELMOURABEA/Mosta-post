@@ -181,7 +181,7 @@ fn active_flag_properties(flag: &FeatureFlag) -> impl Iterator<Item = &PropertyF
 /// Scans `filters.groups[*].properties` for `type == "flag"` properties and
 /// parses their `key` as an integer flag ID. Inactive/deleted flags return
 /// empty deps to match Python's `_extract_direct_dependency_ids()`.
-fn extract_direct_flag_dependency_ids(flag: &FeatureFlag) -> HashSet<FeatureFlagId> {
+pub(crate) fn extract_direct_flag_dependency_ids(flag: &FeatureFlag) -> HashSet<FeatureFlagId> {
     active_flag_properties(flag)
         .filter_map(|p| p.get_feature_flag_id())
         .collect()
@@ -203,7 +203,8 @@ pub fn extract_cohort_ids_from_flag_filters(flags: &[FeatureFlag]) -> HashSet<Co
 /// removes every cycle before the stage computation runs. The fallback guards against a later
 /// change to the graph code. In one stage, a dependent reads its dependency's result only when
 /// list order puts the dependency first. Otherwise its `flag_evaluates_to` condition reads as a
-/// non-match.
+/// non-match. A failure raised during that stage also stays hidden from the dependents in it,
+/// so they evaluate instead of failing with `dependency_failed`.
 pub(crate) fn compute_flag_dependencies_or_single_stage(
     team_id: TeamId,
     flags: &[FeatureFlag],

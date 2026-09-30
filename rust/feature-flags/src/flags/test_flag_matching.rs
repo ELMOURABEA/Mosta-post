@@ -16,6 +16,7 @@ mod tests {
             cohort_models::{Cohort, CohortId, CohortType, MembershipStampPolicy},
             membership::{CohortMembershipError, CohortMembershipProvider},
         },
+        database::PostgresRouter,
         flags::{
             feature_flag_list::PreparedFlags,
             flag_group_type_mapping::{GroupTypeCacheManager, GroupTypeMapping},
@@ -37,7 +38,7 @@ mod tests {
             mock::MockInto,
             test_utils::{
                 failing_group_type_cache, flag_list_with_metadata, mock_group_type_cache,
-                TestContext,
+                setup_invalid_pg_client, TestContext,
             },
         },
     };
@@ -1198,6 +1199,106 @@ mod tests {
             let missing_dep_flag = result.flags.get("missing_dependency_flag").unwrap();
             assert!(!missing_dep_flag.enabled);
             assert_eq!(missing_dep_flag.reason.code, "missing_dependency");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_flags_depending_on_a_failed_flag_fail_too() {
+        let failing_db = setup_invalid_pg_client().await;
+        let router = PostgresRouter::new(
+            failing_db.clone(),
+            failing_db.clone(),
+            failing_db.clone(),
+            failing_db.clone(),
+        );
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            router,
+            Arc::new(CohortCacheManager::new(failing_db, None, None)),
+            empty_group_type_cache(),
+            None,
+        );
+
+        let rollout_flag = mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into());
+        let person_flag = mock!(FeatureFlag,
+            id: 2,
+            key: "person_flag".mock_into(),
+            filters: mock!(PropertyFilter,
+                key: "email".mock_into(),
+                value: Some(json!("user@example.com")),
+                prop_type: PropertyType::Person
+            ).mock_into()
+        );
+        let dependent_flag = mock!(FeatureFlag,
+            id: 3,
+            key: "dependent_flag".mock_into(),
+            filters: dep_filter(person_flag.id, FlagValue::Boolean(true)).mock_into()
+        );
+        let dependent_with_catch_all_flag = mock!(FeatureFlag,
+            id: 4,
+            key: "dependent_with_catch_all_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(false))])
+                    ),
+                    mock!(FlagPropertyGroup),
+                ]
+            )
+        );
+        let transitive_dependent_flag = mock!(FeatureFlag,
+            id: 5,
+            key: "transitive_dependent_flag".mock_into(),
+            filters: dep_filter(dependent_flag.id, FlagValue::Boolean(false)).mock_into()
+        );
+        let healthy_dependent_flag = mock!(FeatureFlag,
+            id: 6,
+            key: "healthy_dependent_flag".mock_into(),
+            filters: dep_filter(rollout_flag.id, FlagValue::Boolean(true)).mock_into()
+        );
+        let mut flags = flag_list_with_metadata(vec![
+            rollout_flag,
+            person_flag,
+            dependent_flag,
+            dependent_with_catch_all_flag,
+            transitive_dependent_flag,
+            healthy_dependent_flag,
+        ]);
+        // Preloaded cohorts keep the cohort definitions lookup off the failing pool.
+        flags.cohorts = Some(Arc::from(Vec::new()));
+
+        let result = matcher
+            .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
+            .await
+            .unwrap();
+
+        assert!(result.errors_while_computing_flags);
+        for key in ["rollout_flag", "healthy_dependent_flag"] {
+            assert!(!result.flags[key].failed, "{key}");
+            assert_eq!(
+                result.flags[key].to_value(),
+                FlagValue::Boolean(true),
+                "{key}"
+            );
+        }
+        assert_eq!(
+            result.flags["person_flag"].reason.code,
+            "timeout:pool_timeout"
+        );
+        for key in [
+            "dependent_flag",
+            "dependent_with_catch_all_flag",
+            "transitive_dependent_flag",
+        ] {
+            let details = &result.flags[key];
+            assert!(
+                details.failed,
+                "{key} must fail when a flag it depends on fails"
+            );
+            assert!(!details.enabled, "{key}");
+            assert_eq!(details.reason.code, "dependency_failed", "{key}");
         }
     }
 

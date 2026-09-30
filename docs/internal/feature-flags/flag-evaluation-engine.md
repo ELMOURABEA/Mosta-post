@@ -480,6 +480,14 @@ match filter.value {
 
 Evaluated results are cached in `FlagEvaluationState.flag_evaluation_results` for subsequent dependent flags. Flags with missing or cyclic dependencies evaluate to `false` with reason `MissingDependency`.
 
+A failed flag records no result, so a dependent would read its `flag_evaluates_to` condition as a non-match.
+A flag with a direct dependency that failed, for example because the persons database fetch failed, therefore returns `failed: true` with the `dependency_failed` reason instead of evaluating its conditions.
+An SDK can then tell the error apart from a configured `false`.
+The failure reaches transitive dependents stage by stage.
+The check runs only after a flag has failed in the request.
+An unsupported non-v1 flag is the exception: it fails, but its dependents read it as false, as described above.
+The batch evaluation endpoint retries a target that failed with `dependency_failed` only when every failed dependency reports a transient code.
+
 ### Partial flag evaluation
 
 When `flag_keys` is provided in the request, the dependency graph is filtered to include only the requested flags and their transitive dependencies. This avoids evaluating unrelated flags.
