@@ -30,8 +30,6 @@ def _announcement(
     transition = GroupTransition(
         grouping_key="",
         kind=kind,
-        previous_state="not_firing",
-        state="firing",
         episode_started_at=episode_started_at,
         value=300.0,
         labels={},

@@ -288,8 +288,6 @@ def _transition(
     return GroupTransition(
         grouping_key="",
         kind=AlertEventKind(_NOTIFICATION_EVENT_KINDS[outcome.notification]),
-        previous_state=check.state,
-        state=outcome.new_state.value,
         episode_started_at=episode.started_at if episode else None,
         value=None,
         labels={},

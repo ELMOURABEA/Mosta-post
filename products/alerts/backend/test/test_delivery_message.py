@@ -12,8 +12,6 @@ def _transition(kind: AlertEventKind, **overrides: Any) -> GroupTransition:
     fields: dict[str, Any] = {
         "grouping_key": "",
         "kind": kind,
-        "previous_state": "not_firing",
-        "state": "firing",
         "episode_started_at": None,
         "value": 300.0,
         "labels": {},

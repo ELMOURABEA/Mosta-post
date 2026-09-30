@@ -163,8 +163,9 @@ class AlertEventKind(StrEnum):
     """What one evaluation announced about an alert.
 
     `CHECK` is an evaluation that announced nothing, which includes one that moved the alert while
-    a cooldown or a mute held the notification back. Read `previous_state` and `state` to find the
-    moves, because counting `RESOLVED` rows misses every recovery that was suppressed.
+    a cooldown or a mute held the notification back. Read `previous_state` and `state` on the
+    `platform_alert_events` row to find those moves, because counting `RESOLVED` rows misses every
+    recovery that was suppressed. A transition carries no states, because no message says them.
 
     A source reports the kind rather than the platform deriving it: the machine already decided
     what to announce, and deriving it again from the states would be a second implementation of
@@ -220,12 +221,14 @@ class GroupTransition:
     claims was breached cannot change between the check and a retried send. `grouping_key` is
     empty until a source groups, so delivery reads a list of one today and a list of N when
     fan-out ships.
+
+    The two states are not here. `kind` is what picks a headline, and the one case a state pair
+    answers that `kind` cannot is a `CHECK` row, which announces nothing and therefore reaches no
+    message. That case is a history read, and `platform_alert_events` keeps both columns for it.
     """
 
     grouping_key: str
     kind: AlertEventKind
-    previous_state: str
-    state: str
     # The firing this transition concerns, which on a resolve is the firing that just ended.
     # None when no firing is involved, which is a failed or a turned-off check.
     episode_started_at: datetime | None
