@@ -509,12 +509,12 @@ class SignalReportSummaryWorkflow:
                         source_products=source_products,
                         charts=decision.charts,
                         metrics=decision.metrics,
-                        suggested_prompts=decision.suggested_prompts,
-                        charts_enabled=decision.charts_enabled,
-                        pending_reason=decision.pending_reason,
                         checks=decision.checks,
                         reconcile_checks=decision.reconcile_checks,
                         checks_task_id=decision.research_task_id,
+                        suggested_prompts=decision.suggested_prompts,
+                        charts_enabled=decision.charts_enabled,
+                        pending_reason=decision.pending_reason,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1194,6 +1194,10 @@ class MarkReportPendingInput:
     revise_measurement_plan_metric_ids: list[str] | None = None
     retire_measurement_plan_metric_ids: list[str] | None = None
     previous_measurement_plan_ids: dict[str, str] | None = None
+    # See MarkReportReadyInput.checks: same transaction, same replay-safe defaults.
+    checks: list[dict[str, Any]] | None = None
+    reconcile_checks: bool = False
+    checks_task_id: str | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None
     # See MarkReportReadyInput.charts_enabled — reported, never stored.
@@ -1201,9 +1205,6 @@ class MarkReportPendingInput:
     # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
     # ReportDecision.pending_reason.
     pending_reason: str | None = None
-    checks: list[dict[str, Any]] | None = None
-    reconcile_checks: bool = False
-    checks_task_id: str | None = None
 
 
 @temporalio.activity.defn

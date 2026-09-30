@@ -911,7 +911,7 @@ class TestReportCheckAPI(APIBaseTest):
             }
         ]
         self.report.save(update_fields=["metrics"])
-        stored = self._create(config=config)
+        stored = self._create(config={**config, "value_format": "percentage", "unit": "failure"})
         assert stored.config["metric_id"] == "checkout-errors"
         assert stored.config["query"] == _PAGEVIEWS
         assert stored.config["metric_kind"] == "occurrences"

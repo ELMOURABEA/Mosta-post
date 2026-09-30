@@ -911,13 +911,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     })),
 
     reducers({
-        reportChecksError: [
-            null as string | null,
-            {
-                loadReportChecksSuccess: () => null,
-                loadReportChecksFailure: () => "Couldn't load the measurements.",
-            },
-        ],
         selectedPullRequestUrl: [null as string | null, { selectPullRequest: (_, { url }) => url }],
         // Checks whose cancel request is in flight, so each row's Stop button disables itself
         // without blocking a second row.
@@ -1063,6 +1056,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 loadPrComments: () => null,
                 loadPrCommentsSuccess: () => null,
                 loadPrCommentsFailure: () => "Couldn't load the PR comments from GitHub.",
+            },
+        ],
+        // Cleared only on success, so the error and its retry button stay visible while the retry runs.
+        reportChecksError: [
+            null as string | null,
+            {
+                loadReportChecksSuccess: () => null,
+                loadReportChecksFailure: () => "Couldn't load the measurements.",
             },
         ],
         // The one in-progress draft thread on a diff line. Reset when the report changes.

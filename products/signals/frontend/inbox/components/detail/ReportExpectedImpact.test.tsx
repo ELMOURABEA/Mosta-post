@@ -159,6 +159,24 @@ describe('ReportExpectedImpact', () => {
         expect(screen.getByText('Suggest different metrics').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 
+    it('shows a failed check load and loads again on retry', async () => {
+        useMocks({ get: { '/api/projects/:team_id/signals/reports/:id/checks/': () => [500, {}] } })
+        logic.unmount()
+        logic = inboxReportDetailLogic({ reportId: report.id, report })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        render(<ReportExpectedImpact report={report} reportUrl="https://example.com/report-1" />)
+
+        expect(screen.getByText("Couldn't load the measurements.")).toBeInTheDocument()
+        expect(screen.queryByText('Loading measurements…')).not.toBeInTheDocument()
+
+        useMocks({ get: { '/api/projects/:team_id/signals/reports/:id/checks/': { results: [check] } } })
+        await userEvent.setup().click(screen.getByText('Try again'))
+
+        expect(await screen.findByText('Checkout errors stay below 5: at most 5 users')).toBeInTheDocument()
+        expect(screen.queryByText("Couldn't load the measurements.")).not.toBeInTheDocument()
+    })
+
     it('does not fall back to report queries when a check query is redacted', () => {
         renderMeasurements([{ ...check, config: { ...check.config, query: null, baseline_value: null } }])
 
