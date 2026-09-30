@@ -4,7 +4,6 @@ import { IconTarget } from '@posthog/icons'
 
 import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
 import { buildReportCheckRows, reportChecksMeta } from './reportCheckPresentation'
 import { ReportCheckRow } from './ReportCheckRow'
@@ -84,16 +83,7 @@ function ChecksSection({ checks }: { checks: SignalReportCheckApi[] }): JSX.Elem
         >
             <div className="flex flex-col gap-1.5">
                 {buildReportCheckRows(checks, explanations).map((row) => (
-                    <ReportCheckRow
-                        key={row.check.id}
-                        row={row}
-                        report={{ id: 'report-1', status: 'ready' } as SignalReport}
-                        reportUrl="https://example.com/report-1"
-                        cancelling={false}
-                        approving={false}
-                        onCancel={() => undefined}
-                        onApprove={() => undefined}
-                    />
+                    <ReportCheckRow key={row.check.id} row={row} cancelling={false} onCancel={() => undefined} />
                 ))}
             </div>
         </DetailSection>

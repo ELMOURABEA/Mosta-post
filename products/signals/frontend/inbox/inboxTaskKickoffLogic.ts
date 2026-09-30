@@ -171,11 +171,10 @@ export function buildDiscussReportPrompt(
     report: SignalReport | null,
     reportUrl: string,
     question: string,
-    intent?: `check_metric:${string}`
+    intent?: 'check_metrics'
 ): string {
-    if (intent?.startsWith('check_metric:') && report !== null) {
-        const checkId = intent.slice('check_metric:'.length)
-        return `A person asked you to suggest a better metric for follow-up check ${checkId} on the PostHog Inbox report at ${reportUrl}. Their description of success is:\n\n${question.trim()}\n\nRead the report, the named check, and its check results first. Investigate which available data can test the intended outcome. If you find a sounder measure, use inbox-report-checks-replace on check ${checkId} with a bounded live Trends query or report metric ID, a measured baseline, an explicit comparison, and a suitable soak window. The replacement starts unapproved but runs without approval. If you cannot establish a credible metric or threshold, explain what is missing and leave the existing check running. Do not change the report state or open a PR.\n\n${NO_CHECKOUT_INSTRUCTIONS}`
+    if (intent === 'check_metrics' && report !== null) {
+        return `A person asked you to suggest better metrics for the expected impact on the PostHog Inbox report at ${reportUrl}. Their description of success is:\n\n${question.trim()}\n\nRead the report, its follow-up checks, and their check results first. Investigate which available data can test the intended outcome. If you find a sounder measure, use inbox-report-checks-replace on each relevant open metric check with a bounded live Trends query or report metric ID, a measured baseline, an explicit comparison, and a suitable soak window. Keep unrelated checks unchanged. The replacement starts unapproved but runs without approval. If you cannot establish a credible metric or threshold, explain what is missing and leave the existing checks running. Do not change the report state or open a PR. You may use inbox-reports-update to clarify the Expected impact prose without changing other sections.\n\n${NO_CHECKOUT_INSTRUCTIONS}`
     }
     // The task is already linked to the report, but including the URL lets the agent open and read
     // the full report itself. The user's message follows after a blank line for clear separation.
@@ -397,10 +396,10 @@ export interface inboxTaskKickoffLogicActions {
         reportUrl: string,
         question: string,
         agentQuestion?: string,
-        intent?: `check_metric:${string}`
+        intent?: 'check_metrics'
     ) => {
         agentQuestion: string | undefined
-        intent: `check_metric:${string}` | undefined
+        intent: 'check_metrics' | undefined
         question: string
         report: SignalReport
         reportUrl: string
@@ -506,7 +505,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             reportUrl: string,
             question: string,
             agentQuestion?: string,
-            intent?: `check_metric:${string}`
+            intent?: 'check_metrics'
         ) => ({
             report,
             reportUrl,

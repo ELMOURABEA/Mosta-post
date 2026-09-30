@@ -545,12 +545,13 @@ describe('inboxTaskKickoffLogic', () => {
                 makeReport({ status: SignalReportStatus.RESOLVED }),
                 url,
                 'Fewer failed checkouts',
-                'check_metric:check-1'
+                'check_metrics'
             )
             expect(prompt).toContain('Fewer failed checkouts')
             expect(prompt).toContain('inbox-report-checks-replace')
-            expect(prompt).toContain('check-1')
-            expect(prompt).toContain('leave the existing check running')
+            expect(prompt).toContain('each relevant open metric check')
+            expect(prompt).toContain('Keep unrelated checks unchanged')
+            expect(prompt).toContain('leave the existing checks running')
             expect(prompt).not.toContain('inbox-reports-set-state')
         })
 

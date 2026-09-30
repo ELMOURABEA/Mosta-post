@@ -1,17 +1,8 @@
-import { useActions, useValues } from 'kea'
-import { useState } from 'react'
-
 import { IconClock, IconTrends } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-import type { MetricThresholdConfigApi, ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
-
-import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
-import { SignalReport } from '../../types'
-import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
-import { ReportCheckMetricChart } from './ReportCheckMetricChart'
 import { ReportCheckRowData } from './reportCheckPresentation'
 
 /**
@@ -21,51 +12,14 @@ import { ReportCheckRowData } from './reportCheckPresentation'
  */
 export function ReportCheckRow({
     row,
-    report,
-    reportUrl,
     cancelling,
-    approving,
     onCancel,
-    onApprove,
 }: {
     row: ReportCheckRowData
-    report: SignalReport
-    reportUrl: string
     cancelling: boolean
-    approving: boolean
     onCancel: (checkId: string) => void
-    onApprove: (checkId: string) => void
 }): JSX.Element {
     const { check, tag, detail, cancelled, cancellable } = row
-    const [expanded, setExpanded] = useState(false)
-    const [modalOpen, setModalOpen] = useState(false)
-    const [description, setDescription] = useState('')
-    const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
-    const { currentProjectId, aiConsentDisabledReason, isDiscussing, isCreatingPr } = useValues(inboxTaskKickoffLogic)
-    const metricConfig: MetricThresholdConfigApi | null =
-        check.kind === 'metric_threshold' && 'comparison' in check.config ? check.config : null
-    const metric: ReportMetricApi | null = metricConfig
-        ? {
-              metric_id: metricConfig.metric_id ?? check.id,
-              title: check.title,
-              kind: metricConfig.metric_kind ?? 'custom',
-              query: metricConfig.query,
-              value_format: metricConfig.value_format,
-              unit: metricConfig.unit,
-              goal_value: metricConfig.comparison.operator === 'between' ? null : metricConfig.comparison.value,
-          }
-        : null
-    const seriesQuery = metric ? asReportMetricSeriesQuery(metric) : null
-
-    const suggest = (): void => {
-        const request = description.trim()
-        if (!request) {
-            return
-        }
-        openReportDiscussion(report, reportUrl)
-        discussReport(report, reportUrl, request, undefined, `check_metric:${check.id}`)
-        setModalOpen(false)
-    }
 
     return (
         <div
@@ -118,122 +72,6 @@ export function ReportCheckRow({
                     </LemonButton>
                 )}
             </div>
-            <div className="flex flex-wrap items-center gap-1 pl-[1.375rem]">
-                {check.approved_at ? (
-                    <LemonTag size="small" type="success">
-                        Looks good
-                    </LemonTag>
-                ) : cancellable ? (
-                    <LemonButton
-                        type="tertiary"
-                        size="xsmall"
-                        loading={approving}
-                        data-attr="signals-report-check-approve"
-                        disabledReason={
-                            currentProjectId == null
-                                ? 'Select a project to approve this check.'
-                                : metricConfig && metricConfig.query == null
-                                  ? 'The measurement query is not available to you.'
-                                  : undefined
-                        }
-                        onClick={() => onApprove(check.id)}
-                    >
-                        Looks good
-                    </LemonButton>
-                ) : null}
-                {metricConfig && (
-                    <>
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            data-attr="signals-report-check-view-measurement"
-                            onClick={() => setExpanded(!expanded)}
-                        >
-                            {expanded ? 'Hide measurement' : 'View measurement'}
-                        </LemonButton>
-                        {cancellable && (
-                            <LemonButton
-                                type="tertiary"
-                                size="xsmall"
-                                data-attr="signals-report-check-suggest-metrics"
-                                onClick={() => setModalOpen(true)}
-                            >
-                                Suggest different metrics
-                            </LemonButton>
-                        )}
-                    </>
-                )}
-            </div>
-            {expanded && metricConfig && (
-                <div className="flex flex-col gap-2 pl-[1.375rem] text-xs">
-                    <p className="m-0 text-secondary">
-                        {metricConfig.comparison.operator === 'between'
-                            ? `Goal: between ${metricConfig.comparison.bounds?.lower} and ${metricConfig.comparison.bounds?.upper}`
-                            : `Goal: ${metricConfig.comparison.operator === 'lte' ? 'at most' : 'at least'} ${
-                                  metric && metricConfig.comparison.value != null
-                                      ? (formatReportMetricValue(metric, metricConfig.comparison.value) ??
-                                        metricConfig.comparison.value)
-                                      : ''
-                              }`}
-                        {metricConfig.baseline_value != null && metric
-                            ? ` · Baseline: ${formatReportMetricValue(metric, metricConfig.baseline_value) ?? metricConfig.baseline_value}`
-                            : ''}
-                    </p>
-                    {metric && seriesQuery ? (
-                        <ReportCheckMetricChart
-                            reportId={report.id}
-                            metric={metric}
-                            query={seriesQuery.source}
-                            goalGrain="whole_window"
-                            version={check.id}
-                        />
-                    ) : (
-                        <p className="m-0 text-tertiary">The measurement query is not available to you.</p>
-                    )}
-                    {metricConfig.query != null && (
-                        <details>
-                            <summary className="cursor-pointer">View measurement query</summary>
-                            <pre className="max-h-64 overflow-auto rounded bg-surface-secondary p-2 text-xs">
-                                {JSON.stringify(metricConfig.query, null, 2)}
-                            </pre>
-                        </details>
-                    )}
-                </div>
-            )}
-            <LemonModal
-                isOpen={modalOpen}
-                onClose={() => setModalOpen(false)}
-                title="Describe a better metric"
-                width={560}
-                footer={
-                    <>
-                        <LemonButton type="secondary" onClick={() => setModalOpen(false)}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            data-attr="signals-report-check-ask-ai-update"
-                            onClick={suggest}
-                            loading={isDiscussing}
-                            disabledReason={
-                                aiConsentDisabledReason ??
-                                (isCreatingPr ? 'An implementation is starting.' : undefined) ??
-                                (!description.trim() ? 'Describe the outcome first.' : undefined)
-                            }
-                        >
-                            Ask AI to update check
-                        </LemonButton>
-                    </>
-                }
-            >
-                <LemonTextArea
-                    value={description}
-                    onChange={setDescription}
-                    placeholder="For example, fewer users should see the not-found page within a week."
-                    rows={4}
-                    maxLength={2000}
-                />
-            </LemonModal>
         </div>
     )
 }

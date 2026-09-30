@@ -17,27 +17,18 @@ import { ReportCheckRow } from './ReportCheckRow'
 
 /**
  * What is still watching this report, and what the checks that already ran decided. A check is the
- * one forward-looking row a report carries: an expectation plus the time to test it. Until it
- * produces a verdict nothing else on the page mentions it, so a reader cannot otherwise tell that a
- * check is scheduled, waiting for the report to resolve, or expired without ever running.
+ * expectation plus the time to test it. The rail shows whether each check is scheduled, waiting
+ * for the report to resolve, or expired without ever running.
  *
  * Reads the report's checks endpoint and the artefacts the detail logic already loads, which is
  * where a finished check's explanation lives. Hidden entirely when the report has no checks, so the
  * rail does not grow an empty section on the reports that carry none.
  */
-export function ReportChecksSection({
-    report,
-    reportUrl,
-}: {
-    report: SignalReport
-    reportUrl: string
-}): JSX.Element | null {
-    const { reportChecks, reportChecksLoading, reportArtefacts, cancellingCheckIds, approvingCheckIds } = useValues(
+export function ReportChecksSection({ report }: { report: SignalReport }): JSX.Element | null {
+    const { reportChecks, reportChecksLoading, reportArtefacts, cancellingCheckIds } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
-    const { cancelReportCheck, approveReportCheck } = useActions(
-        inboxReportDetailLogic({ reportId: report.id, report })
-    )
+    const { cancelReportCheck } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
     const [showRetired, setShowRetired] = useState(false)
 
     if (reportChecksLoading && !reportChecks) {
@@ -67,12 +58,8 @@ export function ReportChecksSection({
                     <ReportCheckRow
                         key={row.check.id}
                         row={row}
-                        report={report}
-                        reportUrl={reportUrl}
                         cancelling={cancellingCheckIds.includes(row.check.id)}
-                        approving={approvingCheckIds.includes(row.check.id)}
                         onCancel={cancelReportCheck}
-                        onApprove={approveReportCheck}
                     />
                 ))}
                 {hidden.length > 0 && !showRetired && (
