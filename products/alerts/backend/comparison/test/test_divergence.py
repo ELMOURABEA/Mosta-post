@@ -19,7 +19,7 @@ from products.alerts.backend.facade.contracts import SourceKind
 AT = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
 
 
-def _check(state: str, held_notification: str = "none") -> PlatformCheck:
+def _check(state: str, muted_notification: str = "none") -> PlatformCheck:
     return PlatformCheck(
         team_id=1,
         configuration_id=uuid4(),
@@ -29,7 +29,8 @@ def _check(state: str, held_notification: str = "none") -> PlatformCheck:
         evaluation_key="window:2026-09-30T11:55:00+00:00",
         previous_state="not_firing",
         state=state,
-        held_notification=held_notification,
+        kind="check",
+        muted_notification=muted_notification,
         error_message="",
         occurred_at=AT,
     )
@@ -65,21 +66,21 @@ class TestDivergenceClassification(TestCase):
             ),
             (
                 "the platform held an announcement while the source fell behind",
-                _check("firing", held_notification="fire"),
+                _check("firing", muted_notification="fire"),
                 SourceVerdict(coverage=SourceCoverage.BEHIND, state="not_firing"),
                 Agreement.DIVERGED,
                 DivergenceClass.INTENTIONAL,
             ),
             (
                 "the platform held an announcement the source was not muted for",
-                _check("firing", held_notification="fire"),
+                _check("firing", muted_notification="fire"),
                 SourceVerdict(coverage=SourceCoverage.EVALUATED, state="not_firing"),
                 Agreement.DIVERGED,
                 DivergenceClass.REAL,
             ),
             (
                 "the platform held an announcement for an alert the source had disabled",
-                _check("firing", held_notification="fire"),
+                _check("firing", muted_notification="fire"),
                 SourceVerdict(
                     coverage=SourceCoverage.SUPPRESSED,
                     state="not_firing",

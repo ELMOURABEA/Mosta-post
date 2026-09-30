@@ -41,7 +41,12 @@ class CheckRef:
 class PlatformCheck:
     """One row of the platform's check history, as a comparison reads it.
 
-    `held_notification` is the announcement a mute held back, as a `NotificationAction` value.
+    A comparison is over `previous_state` and `state` rather than over `kind`, because a check
+    that moved the alert while a cooldown or a mute held the notification back records
+    `AlertEventKind.CHECK`. Counting kinds misses every suppressed move. `kind` is carried so a
+    report can say what the platform announced.
+
+    `muted_notification` is the announcement a mute held back, as a `NotificationAction` value.
     It is the platform's only record that an alert was muted at the moment of a check, because a
     muted check that decided nothing holds nothing and leaves no other trace.
     """
@@ -53,9 +58,10 @@ class PlatformCheck:
     alert_id: UUID
     grouping_key: str
     evaluation_key: str
+    kind: str
     previous_state: str
     state: str
-    held_notification: str
+    muted_notification: str
     error_message: str
     occurred_at: datetime
 

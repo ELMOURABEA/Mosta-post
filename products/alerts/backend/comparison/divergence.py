@@ -125,7 +125,7 @@ class Comparison:
 
 
 def _held_an_announcement(check: PlatformCheck) -> bool:
-    return check.held_notification not in ("", NotificationAction.NONE.value)
+    return check.muted_notification not in ("", NotificationAction.NONE.value)
 
 
 def compare(check: PlatformCheck, verdict: SourceVerdict, *, source: SourceKind) -> Comparison:

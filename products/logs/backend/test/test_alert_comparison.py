@@ -47,7 +47,8 @@ class TestLogsCorrespondence(BaseTest):
             evaluation_key=f"{alert.id}:window:{WINDOW_END.isoformat()}",
             previous_state="not_firing",
             state="firing",
-            held_notification="none",
+            kind="check",
+            muted_notification="none",
             error_message="",
             occurred_at=CHECKED_AT,
         )
