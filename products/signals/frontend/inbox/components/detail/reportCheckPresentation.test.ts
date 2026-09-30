@@ -257,6 +257,9 @@ describe('reportCheckPresentation', () => {
             expect(checkCancelledEntry({ reason: 'replaced_by_research' }).detail).toEqual(
                 'Replaced when research re-ran on this report and wrote a new check'
             )
+            expect(checkCancelledEntry({ reason: 'replaced_by_request' }).detail).toEqual(
+                'Replaced on request by a revised check'
+            )
             expect(checkCancelledEntry({}).detail).toEqual('Stopped before it could settle')
         })
     })
