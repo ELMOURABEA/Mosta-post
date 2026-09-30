@@ -518,6 +518,14 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 {"prompt": "p", "alow_inconclusive": True},
                 "Unknown scanner configuration keys: alow_inconclusive.",
             ),
+            # Scan-time injection fields are model fields, so the unknown-keys check alone admits them;
+            # a saved value would fake the variant/hypothesis in every scan's prompt.
+            (
+                "experiment_scan_time_keys",
+                ScannerType.EXPERIMENT,
+                {"prompt": "p", "experiment_id": 1, "session_variant": "test", "experiment_context": {}},
+                "experiment_context and session_variant are resolved per scan and can't be saved.",
+            ),
         ]
     )
     def test_validation_returns_specific_message_per_invalid_config(
