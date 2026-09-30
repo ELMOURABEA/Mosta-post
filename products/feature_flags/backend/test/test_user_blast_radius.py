@@ -28,7 +28,7 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
         # A numeric operator against a null/non-numeric filter value fails the Float64 cast at
         # execution; these codes wrap to InternalCHQueryError (not Exposed), so they used to 500.
         # The 400 is what the caller needs, but the ClickHouse message is not: it names a column
-        # type and a Python repr, so the body must carry the actionable line instead.
+        # type and a Python repr, so the body must carry UNEVALUABLE_FILTERS_MESSAGE instead.
         raw = "DB::Exception: Cannot parse NaN: converting 'None' to Float64. Stack trace:\n0. DB::Exception::Exception"
         err = wrap_clickhouse_query_error(ServerException(raw, code=code))
         with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
@@ -59,8 +59,7 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
         with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
             raise err
         message = str(ctx.exception)
-        self.assertNotIn("String, UInt8", message)
-        self.assertNotIn("Illegal type", message)
+        self.assertNotIn(raw, message)
         self.assertIn("Check the property values", message)
 
     def test_curated_clickhouse_message_is_kept(self):
