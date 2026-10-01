@@ -8,13 +8,17 @@ key on the scheduled run, and neither shape is reconstructible from the platform
 source supplies the correspondence through `SourceCorrespondence` rather than the harness
 guessing it.
 
+A source declares everything about itself on that one object: how to find its own verdicts, the
+two policies its stacks run, and which differences between them are deliberate. A second
+registration point in the shared package would let a source change one and not the other.
+
 Two stacks never evaluate at the same instant. The key is what corresponds; a timestamp is only
 a bound on how far apart two corresponding checks may sit.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
@@ -23,6 +27,7 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from products.alerts.backend.facade.contracts import SourceKind
+from products.alerts.backend.facade.lifecycle import AlertPolicy
 
 
 @frozen
@@ -41,10 +46,10 @@ class CheckRef:
 class PlatformCheck:
     """One row of the platform's check history, as a comparison reads it.
 
-    A comparison is over `previous_state` and `state` rather than over `kind`, because a check
-    that moved the alert while a cooldown or a mute held the notification back records
-    `AlertEventKind.CHECK`. Counting kinds misses every suppressed move. `kind` is carried so a
-    report can say what the platform announced.
+    A comparison is over `state`, not over `kind`, because a check that moved the alert while a
+    cooldown or a mute held the notification back records `AlertEventKind.CHECK`. Counting kinds
+    misses every suppressed move. `kind` and `previous_state` are carried so a report can say what
+    the platform announced and what it moved from.
 
     `muted_notification` is the announcement a mute held back, as a `NotificationAction` value.
     It is the platform's only record that an alert was muted at the moment of a check, because a
@@ -114,11 +119,32 @@ class SourceVerdict:
     detail: str = ""
 
 
+@frozen
+class IntentionalDivergence:
+    """One difference a source's platform stack makes on purpose.
+
+    `recognizes` is what makes this a mechanism rather than a note: the classifier asks each
+    declared divergence whether it explains the pair in front of it. A declaration without a
+    working recognizer leaves its differences classified as real, which is the safe direction.
+
+    `policy_flag` names the `AlertPolicy` field that causes it, and is what the ratchet matches
+    against, so a source cannot configure a deliberate difference and leave it undeclared.
+
+    The recognizer belongs to the source because the same flag shows up differently per source.
+    Production logs stops checking a muted alert and its schedule stalls; insight keeps checking
+    one and its schedule does not.
+    """
+
+    policy_flag: str
+    recognizes: Callable[[PlatformCheck, SourceVerdict], bool]
+    why: str
+
+
 class SourceCorrespondence(Protocol):
     """How a source says which of its own history corresponds to a platform check.
 
-    Batched rather than per check, because a source answers from its own tables and a per-check
-    call would issue one query per row of a comparison window.
+    `verdicts_for` is batched rather than per check, because a source answers from its own tables
+    and a per-check call would issue one query per row of a comparison window.
 
     A correspondence returns a verdict for every ref it was given. A check it cannot answer gets
     `SourceCoverage.UNKNOWN`, never a missing entry, so a caller cannot mistake silence for
@@ -126,5 +152,10 @@ class SourceCorrespondence(Protocol):
     """
 
     source: SourceKind
+    # What the source's own stack runs, against what its platform adapter runs. Declared here so
+    # it stays next to the code that passes them to the machine.
+    production_policy: AlertPolicy
+    platform_policy: AlertPolicy
+    intentional_divergences: tuple[IntentionalDivergence, ...]
 
     def verdicts_for(self, checks: Sequence[PlatformCheck]) -> Mapping[CheckRef, SourceVerdict]: ...

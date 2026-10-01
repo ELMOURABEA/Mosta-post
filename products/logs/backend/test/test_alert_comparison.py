@@ -8,11 +8,36 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.alerts.backend.comparison.contracts import PlatformCheck, SourceCoverage, SuppressionReason
+from products.alerts.backend.facade.contracts import PlatformAlertCheckInput
 from products.logs.backend.alert_comparison import LogsCorrespondence
+from products.logs.backend.alert_source_cycle import _evaluation_key, window_end_of
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
 CHECKED_AT = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
 WINDOW_END = CHECKED_AT - timedelta(minutes=1)
+
+
+def _check_input(alert_id, *, next_check_at) -> PlatformAlertCheckInput:
+    return PlatformAlertCheckInput(
+        id=alert_id,
+        team_id=1,
+        name="API errors",
+        source_config={},
+        threshold_count=10,
+        threshold_operator="above",
+        window_minutes=5,
+        check_interval_minutes=5,
+        evaluation_periods=1,
+        datapoints_to_alarm=1,
+        cooldown_minutes=0,
+        schedule_restriction=None,
+        next_check_at=next_check_at,
+        consecutive_failures=0,
+        legacy_configuration_id=None,
+        state="not_firing",
+        last_notified_at=None,
+        snooze_until=None,
+    )
 
 
 class TestLogsCorrespondence(BaseTest):
@@ -44,7 +69,7 @@ class TestLogsCorrespondence(BaseTest):
             legacy_configuration_id=alert.id,
             alert_id=uuid4(),
             grouping_key="",
-            evaluation_key=f"{alert.id}:window:{WINDOW_END.isoformat()}",
+            evaluation_key=f"slot:{CHECKED_AT.isoformat()}|window:{WINDOW_END.isoformat()}",
             previous_state="not_firing",
             state="firing",
             kind="check",
@@ -159,6 +184,12 @@ class TestLogsCorrespondence(BaseTest):
 
         assert verdicts[checks[0].ref].coverage is SourceCoverage.UNKNOWN
         assert verdicts[checks[1].ref].coverage is SourceCoverage.EVALUATED
+
+    def test_the_window_bound_round_trips_through_the_key_the_source_mints(self) -> None:
+        # A key the minter no longer produces would silently cost every check its window bound.
+        check = _check_input(uuid4(), next_check_at=CHECKED_AT)
+
+        assert window_end_of(_evaluation_key(check, WINDOW_END)) == WINDOW_END
 
     def test_a_check_whose_configuration_names_no_logs_alert_cannot_be_answered(self) -> None:
         orphan = replace(self._check(self._alert()), legacy_configuration_id=None)

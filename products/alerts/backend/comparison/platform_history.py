@@ -12,10 +12,11 @@ receiving the answer, which is a narrower read rather than a different one.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import fields
 from datetime import datetime
 from uuid import UUID
 
-from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
 from products.alerts.backend.comparison.contracts import PlatformCheck
@@ -27,21 +28,13 @@ from products.alerts.backend.models.platform_alert_events_sql import PLATFORM_AL
 # is worse than no rate at all.
 MAX_CHECKS_PER_WINDOW = 200_000
 
-_COLUMNS = (
-    "configuration_id",
-    "alert_id",
-    "grouping_key",
-    "evaluation_key",
-    "kind",
-    "previous_state",
-    "state",
-    "muted_notification",
-    "error_message",
-    "occurred_at",
-)
+# Derived from the contract, so a field added there cannot be left out of the SELECT.
+_SUPPLIED = ("team_id", "legacy_configuration_id")
+_COLUMNS = tuple(f.name for f in fields(PlatformCheck) if f.name not in _SUPPLIED)
 
 # `LIMIT 1 BY` deduplicates on the pair the writer names, because the insert token only covers a
-# retry of the same batch and the engine remembers a bounded window of tokens.
+# retry of the same batch and the engine remembers a bounded window of tokens. The ORDER BY is the
+# table's sort key with `team_id` fixed, so rows stream in order and arrive grouped by alert.
 _SELECT_SQL = f"""
 SELECT {", ".join(_COLUMNS)}
 FROM {PLATFORM_ALERT_EVENTS_TABLE}
@@ -49,7 +42,7 @@ WHERE team_id = %(team_id)s
   AND configuration_id IN %(configuration_ids)s
   AND occurred_at >= %(since)s
   AND occurred_at < %(until)s
-ORDER BY occurred_at, alert_id, evaluation_key
+ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
 LIMIT 1 BY alert_id, evaluation_key
 LIMIT %(limit)s
 """
@@ -57,6 +50,10 @@ LIMIT %(limit)s
 
 class ComparisonWindowTooLarge(Exception):
     """The window holds more checks than one read will return."""
+
+
+class UnregisteredSource(Exception):
+    """The configuration model has no `source_kind` for this source."""
 
 
 def read_platform_checks(
@@ -71,6 +68,11 @@ def read_platform_checks(
     A window wider than the shorter of the two retentions is not available: the platform's rows
     expire on a 90-day ClickHouse TTL, and each source ages its own history on its own schedule.
     """
+    if source.value not in PlatformAlertConfiguration.SourceKind.values:
+        # Two SourceKind enums exist and have already drifted. Without this an unregistered source
+        # reads as a source that made no checks, which is the answer a comparison must never give.
+        raise UnregisteredSource(f"{source.value} is not a source_kind the configuration model accepts")
+
     legacy_ids: dict[UUID, UUID | None] = dict(
         PlatformAlertConfiguration.objects.for_team(team_id)
         .filter(source_kind=source.value)
@@ -80,7 +82,7 @@ def read_platform_checks(
         return ()
 
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-    rows = sync_execute(
+    rows = query_with_columns(
         _SELECT_SQL,
         {
             "team_id": team_id,
@@ -96,14 +98,7 @@ def read_platform_checks(
             f"{since.isoformat()} to {until.isoformat()} holds over {MAX_CHECKS_PER_WINDOW} checks; narrow it"
         )
 
-    # Bound by name, because `previous_state` and `state` are adjacent columns of one type and a
-    # reordering of `_COLUMNS` would swap them silently.
-    checks = (dict(zip(_COLUMNS, row, strict=True)) for row in rows)
     return tuple(
-        PlatformCheck(
-            team_id=team_id,
-            legacy_configuration_id=legacy_ids[check["configuration_id"]],
-            **check,
-        )
-        for check in checks
+        PlatformCheck(team_id=team_id, legacy_configuration_id=legacy_ids[row["configuration_id"]], **row)
+        for row in rows
     )

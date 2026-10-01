@@ -62,7 +62,11 @@ from products.alerts.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
-from products.alerts.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
+from products.alerts.backend.facade.scheduling import (
+    BlockedWindow,
+    is_utc_datetime_blocked,
+    parse_blocked_windows_tuples,
+)
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
     BucketedCount,
@@ -112,6 +116,9 @@ _NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
 }
 
 
+_WINDOW_MARKER = "window:"
+
+
 def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str:
     """Names the scheduled check, and the window it answered for.
 
@@ -124,7 +131,22 @@ def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str
     shape across sources. Both parts are read before anything is written, so a retry recomputes
     the same key.
     """
-    return f"slot:{slot_of(check.next_check_at, window_end)}|window:{window_end.isoformat()}"
+    return f"slot:{slot_of(check.next_check_at, window_end)}|{_WINDOW_MARKER}{window_end.isoformat()}"
+
+
+def window_end_of(evaluation_key: str) -> datetime | None:
+    """The window end `_evaluation_key` put in a key, for a reader that has only the key.
+
+    The inverse lives next to the minter so a change to one breaks the round trip rather than
+    silently returning None to a reader in another module.
+    """
+    marker, _, tail = evaluation_key.rpartition(_WINDOW_MARKER)
+    if not marker and not evaluation_key.startswith(_WINDOW_MARKER):
+        return None
+    try:
+        return datetime.fromisoformat(tail)
+    except ValueError:
+        return None
 
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
@@ -137,21 +159,29 @@ def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now
     )
 
 
-def _is_in_quiet_hours(check: PlatformAlertCheckInput, now: datetime, tz_name: str) -> bool:
-    """True when the alert's schedule restriction mutes an announcement at the batch instant.
+def is_in_quiet_hours(
+    schedule_restriction: dict | None,
+    now: datetime,
+    tz_name: str,
+    *,
+    alert_id: str,
+    windows: list[BlockedWindow] | None = None,
+) -> bool:
+    """True when the alert's schedule restriction mutes an announcement at `now`.
 
     The check still runs, so an incident wholly inside the window is still recorded.
+
+    `windows` takes an already parsed restriction, for a caller asking about many instants
+    against one configuration.
     """
-    if not check.schedule_restriction:
+    if not schedule_restriction:
         return False
     try:
-        return is_utc_datetime_blocked(now, tz_name, parse_blocked_windows_tuples(check.schedule_restriction))
+        return is_utc_datetime_blocked(now, tz_name, windows or parse_blocked_windows_tuples(schedule_restriction))
     except Exception as error:
         # A restriction we cannot parse must not decide the alert either way, so the check
         # proceeds and the production stack keeps ownership of the broken configuration.
-        logger.exception(
-            "Unparseable schedule restriction; evaluating anyway", check_id=str(check.id), error=str(error)
-        )
+        logger.exception("Unparseable schedule restriction; evaluating anyway", check_id=alert_id, error=str(error))
         return False
 
 
@@ -471,7 +501,7 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
                 )
             )
             continue
-        if _is_in_quiet_hours(check, now, tz_name):
+        if is_in_quiet_hours(check.schedule_restriction, now, tz_name, alert_id=str(check.id)):
             muted_ids.add(check.id)
         evaluable.append(check)
     return _Triage(decided=decided, evaluable=evaluable, muted_ids=frozenset(muted_ids))

@@ -210,12 +210,14 @@ from = [
     "products.alerts",
 ]
 
-# backend.comparison holds the correspondence contract a source implements to have its own
-# verdicts compared against the platform's, so every source imports it. It is a facade surface by
-# every test the repo applies. Fold it into facade, and delete this block.
+# backend.comparison.contracts holds the correspondence contract a source implements to have its
+# own verdicts compared against the platform's, so every source imports it. Only the contract:
+# the reader and the classifier are the shared package's own job, and a source calling them would
+# duplicate the join this package exists to own. It is a facade surface by every test the repo
+# applies. Fold it into facade, and delete this block.
 [[interfaces]]
 expose = [
-    "backend\\.comparison.*",
+    "backend\\.comparison\\.contracts.*",
 ]
 from = [
     "products.alerts",

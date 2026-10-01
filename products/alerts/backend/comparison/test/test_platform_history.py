@@ -16,6 +16,10 @@ OCCURRED_AT = datetime(2026, 9, 30, 12, tzinfo=UTC)
 WINDOW = (OCCURRED_AT - timedelta(hours=1), OCCURRED_AT + timedelta(hours=1))
 
 
+def _key(window_end: str) -> str:
+    return f"slot:{OCCURRED_AT.isoformat()}|window:{window_end}"
+
+
 class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
     def _configuration(self, **overrides) -> PlatformAlertConfiguration:
         with team_scope(self.team.id):
@@ -73,7 +77,7 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
     def test_a_check_carries_the_legacy_id_its_configuration_holds(self) -> None:
         legacy_id = uuid4()
         configuration = self._configuration(legacy_configuration_id=legacy_id)
-        self._record(configuration, evaluation_key="window:2026-09-30T11:59:00+00:00")
+        self._record(configuration, evaluation_key=_key("2026-09-30T11:59:00+00:00"))
 
         checks = self._read()
 
@@ -87,13 +91,13 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
     def test_a_pair_recorded_twice_reads_as_one_check(self) -> None:
         configuration = self._configuration(legacy_configuration_id=uuid4())
         alert_id = uuid4()
-        retried = self._row(configuration, evaluation_key="window:2026-09-30T11:59:00+00:00", alert_id=alert_id)
+        retried = self._row(configuration, evaluation_key=_key("2026-09-30T11:59:00+00:00"), alert_id=alert_id)
         insert_events(self.team.id, [retried])
         # The second batch carries another key so it takes a different insert token and lands.
         # An identical batch is dropped by the engine, leaving no duplicate to collapse.
         insert_events(
             self.team.id,
-            [retried, self._row(configuration, evaluation_key="window:2026-09-30T12:04:00+00:00")],
+            [retried, self._row(configuration, evaluation_key=_key("2026-09-30T12:04:00+00:00"))],
         )
         assert self._stored() == 3
 

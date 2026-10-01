@@ -25,6 +25,7 @@ import structlog
 
 from products.alerts.backend.comparison.contracts import (
     CheckRef,
+    IntentionalDivergence,
     PlatformCheck,
     SourceCorrespondence,
     SourceCoverage,
@@ -32,8 +33,9 @@ from products.alerts.backend.comparison.contracts import (
     SuppressionReason,
 )
 from products.alerts.backend.facade.contracts import SourceKind
-from products.alerts.backend.facade.lifecycle import AlertState
-from products.alerts.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
+from products.alerts.backend.facade.lifecycle import LOGS_ALERT_POLICY, PLATFORM_LOGS_ALERT_POLICY, AlertState
+from products.alerts.backend.facade.scheduling import BlockedWindow, parse_blocked_windows_tuples
+from products.logs.backend.alert_source_cycle import is_in_quiet_hours, window_end_of
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
 logger = structlog.get_logger(__name__)
@@ -42,25 +44,48 @@ logger = structlog.get_logger(__name__)
 # worth holding in memory, and a truncated chain would date checks wrongly.
 MAX_EVENTS_PER_WINDOW = 5000
 
+# The bound the per-alert one does not give: alerts each under their own ceiling still add up.
+MAX_EVENTS_PER_BATCH = 100_000
 
-def _window_end(evaluation_key: str) -> datetime | None:
-    """The end of the window a logs evaluation answered for, as its own key names it.
+_TOGGLE_KINDS = frozenset({LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE})
 
-    The key is minted by this source, so this is the only place that has to know its shape.
-    Used as the bound a lagging production stack is measured against, and nothing else, so an
-    unrecognized key costs the comparison precision rather than an answer.
+
+class ComparisonBatchTooLarge(Exception):
+    """The batch spans more logs transitions than one read will hold."""
+
+
+def _mute_gates_notification_only(check: PlatformCheck, verdict: SourceVerdict) -> bool:
+    """True when this difference is the platform evaluating an alert production logs would not.
+
+    Two shapes, because production logs leaves two different traces. A mute it knows about parks
+    the alert in SNOOZED, which the walk reports as suppressed. A schedule restriction reschedules
+    the check instead, writing nothing and stalling `last_checked_at`, which the walk reports as
+    behind. The platform's held announcement is what separates that stall from a real lag.
     """
-    _, marker, tail = evaluation_key.rpartition("window:")
-    if not marker:
-        return None
-    try:
-        return datetime.fromisoformat(tail)
-    except ValueError:
-        return None
+    if verdict.coverage is SourceCoverage.SUPPRESSED:
+        return verdict.suppressed_by is SuppressionReason.MUTED
+    return verdict.coverage is SourceCoverage.BEHIND and check.muted_notification not in ("", "none")
+
+
+LOGS_INTENTIONAL_DIVERGENCES: tuple[IntentionalDivergence, ...] = (
+    IntentionalDivergence(
+        policy_flag="mute_gates_notification_only",
+        recognizes=_mute_gates_notification_only,
+        why=(
+            "The platform evaluates a muted alert and holds the announcement, so the alert keeps "
+            "tracking reality through a snooze or a schedule restriction. Production logs excludes "
+            "a snoozed alert from discovery and reschedules a restricted one, so it makes no check "
+            "at all. Without this entry every snoozed logs alert reads as divergent."
+        ),
+    ),
+)
 
 
 class LogsCorrespondence(SourceCorrespondence):
     source = SourceKind.LOGS
+    production_policy = LOGS_ALERT_POLICY
+    platform_policy = PLATFORM_LOGS_ALERT_POLICY
+    intentional_divergences = LOGS_INTENTIONAL_DIVERGENCES
 
     def verdicts_for(self, checks: Sequence[PlatformCheck]) -> Mapping[CheckRef, SourceVerdict]:
         verdicts: dict[CheckRef, SourceVerdict] = {}
@@ -81,9 +106,8 @@ class LogsCorrespondence(SourceCorrespondence):
                 team_id__in={team_id for team_id, _ in by_alert},
             )
         }
-        matched = by_alert.keys() & configurations.keys()
         events = self._events_since(
-            matched,
+            set(configurations),
             since=min(check.occurred_at for group in by_alert.values() for check in group),
         )
 
@@ -93,30 +117,31 @@ class LogsCorrespondence(SourceCorrespondence):
                 for check in group:
                     verdicts[check.ref] = _unknown("no logs alert with that id in this project")
                 continue
-            chain = events.get(key[1])
+            _, alert_id = key
+            chain = events.get(alert_id)
             if chain is None:
                 for check in group:
                     verdicts[check.ref] = _unknown("too many logs transitions to date this check against")
                 continue
+            windows = parse_blocked_windows_tuples(configuration.schedule_restriction)
             for check in group:
-                verdicts[check.ref] = _verdict_at(configuration, chain, check)
+                verdicts[check.ref] = _verdict_at(configuration, chain, check, windows=windows)
 
         return verdicts
 
     def _events_since(self, keys: set[tuple[int, UUID]], *, since: datetime) -> dict[UUID, list[LogsAlertEvent]]:
         """Every transition each alert made after `since`, oldest first, keyed by alert.
 
-        An alert whose chain hit the bound is left out, so a caller cannot read a truncated chain
-        as a complete one.
+        An alert whose chain hit the per-alert bound is left out, so a caller cannot read a
+        truncated chain as a complete one.
         """
+        alert_ids = [alert_id for _, alert_id in keys]
         transitions = LogsAlertEvent.objects.filter(
-            alert_id__in=[alert_id for _, alert_id in keys],
+            alert_id__in=alert_ids,
+            # Restated, so a reader never meets a query on this table without a team term.
             alert__team_id__in={team_id for team_id, _ in keys},
             created_at__gt=since,
         )
-        # Counted first because the fetch below is ordered across the whole batch, which makes a
-        # truncated read impossible to attribute to the alert it truncated. One alert that flaps
-        # would otherwise cost every alert in the batch its answer.
         overflowing = set(
             transitions.values("alert_id")
             .annotate(transitions=Count("id"))
@@ -130,13 +155,24 @@ class LogsCorrespondence(SourceCorrespondence):
                 alerts=len(overflowing),
             )
 
-        chains: dict[UUID, list[LogsAlertEvent]] = {alert_id: [] for _, alert_id in keys if alert_id not in overflowing}
-        for row in (
+        chains: dict[UUID, list[LogsAlertEvent]] = {
+            alert_id: [] for alert_id in alert_ids if alert_id not in overflowing
+        }
+        # Matches `logs_alert_event_alert_ts_idx`; a global sort on `created_at` is not a prefix
+        # of it and sorts the whole batch instead.
+        rows = (
             transitions.exclude(alert_id__in=overflowing)
             .only("id", "alert_id", "kind", "created_at", "state_before")
-            .order_by("created_at")
-        ):
+            .order_by("alert_id", "-created_at")[: MAX_EVENTS_PER_BATCH + 1]
+        )
+        held = 0
+        for row in rows:
+            held += 1
+            if held > MAX_EVENTS_PER_BATCH:
+                raise ComparisonBatchTooLarge(f"over {MAX_EVENTS_PER_BATCH} logs transitions since {since.isoformat()}")
             chains[row.alert_id].append(row)
+        for chain in chains.values():
+            chain.reverse()
         return chains
 
 
@@ -148,19 +184,15 @@ def _verdict_at(
     configuration: LogsAlertConfiguration,
     chain: Sequence[LogsAlertEvent],
     check: PlatformCheck,
+    *,
+    windows: list[BlockedWindow] | None,
 ) -> SourceVerdict:
     at = check.occurred_at
-    boundary = next((event for event in chain if event.created_at > at), None)
+    after = [event for event in chain if event.created_at > at]
+    boundary = after[0] if after else None
     state = boundary.state_before if boundary is not None else configuration.state
 
-    toggle = next(
-        (
-            event
-            for event in chain
-            if event.created_at > at and event.kind in (LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE)
-        ),
-        None,
-    )
+    toggle = next((event for event in after if event.kind in _TOGGLE_KINDS), None)
     enabled = toggle.kind == LogsAlertEvent.Kind.DISABLE if toggle is not None else configuration.enabled
 
     # The boundary is the transition that ended the state being reported, so it dates that state
@@ -185,13 +217,17 @@ def _verdict_at(
         # No history of `snooze_until` is kept, so the state overstates the snooze by up to the
         # one check interval production logs takes to write the transition out of it.
         return verdict(SourceCoverage.SUPPRESSED, suppressed_by=SuppressionReason.MUTED)
-    if is_utc_datetime_blocked(
-        at, configuration.team.timezone, parse_blocked_windows_tuples(configuration.schedule_restriction)
+    if is_in_quiet_hours(
+        configuration.schedule_restriction,
+        at,
+        configuration.team.timezone,
+        alert_id=str(configuration.id),
+        windows=windows,
     ):
         return verdict(SourceCoverage.SUPPRESSED, suppressed_by=SuppressionReason.MUTED)
 
     # Production logs must have reached this data before it can have disagreed about it.
-    bound = _window_end(check.evaluation_key) or at
+    bound = window_end_of(check.evaluation_key) or at
     if configuration.last_checked_at is None or configuration.last_checked_at < bound:
         return verdict(SourceCoverage.BEHIND)
 

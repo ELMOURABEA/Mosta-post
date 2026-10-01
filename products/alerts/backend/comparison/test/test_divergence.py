@@ -6,15 +6,11 @@ from unittest import TestCase
 from parameterized import parameterized
 
 from products.alerts.backend.comparison.contracts import PlatformCheck, SourceCoverage, SourceVerdict, SuppressionReason
-from products.alerts.backend.comparison.divergence import (
-    SOURCE_POLICIES,
-    Agreement,
-    DivergenceClass,
-    compare,
-    declared_policy_flags,
-    diverging_policy_flags,
-)
-from products.alerts.backend.facade.contracts import SourceKind
+from products.alerts.backend.comparison.divergence import Agreement, DivergenceClass, compare, diverging_policy_flags
+from products.logs.backend.alert_comparison import LogsCorrespondence
+
+# A source that implements a correspondence and is not listed here gets no ratchet coverage.
+CORRESPONDENCES = (LogsCorrespondence(),)
 
 AT = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
 
@@ -131,13 +127,13 @@ class TestDivergenceClassification(TestCase):
         agreement: Agreement,
         divergence: DivergenceClass | None,
     ) -> None:
-        comparison = compare(check, verdict, source=SourceKind.LOGS)
+        comparison = compare(check, verdict, correspondence=LogsCorrespondence())
 
         assert comparison.agreement == agreement
         assert comparison.divergence == divergence
 
-    @parameterized.expand([(source.value, source) for source in SOURCE_POLICIES])
-    def test_every_policy_divergence_is_declared(self, _name: str, source: SourceKind) -> None:
-        production, platform = SOURCE_POLICIES[source]
+    @parameterized.expand([(c.source.value, c) for c in CORRESPONDENCES])
+    def test_every_policy_divergence_is_declared(self, _name: str, correspondence) -> None:
+        declared = {divergence.policy_flag for divergence in correspondence.intentional_divergences}
 
-        assert diverging_policy_flags(production, platform) == declared_policy_flags(source)
+        assert diverging_policy_flags(correspondence.production_policy, correspondence.platform_policy) == declared
