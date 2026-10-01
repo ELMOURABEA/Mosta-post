@@ -5,6 +5,7 @@ import {
     artifactPreviewKind,
     collectRunArtifacts,
     groupArtifactVersions,
+    listboxKeyTarget,
     parseCsv,
     visibleRunArtifacts,
 } from './taskRunArtifacts'
@@ -57,6 +58,19 @@ describe('taskRunArtifacts', () => {
         ['an unknown binary', { name: 'bundle.zip', content_type: 'application/zip' }, 'none'],
     ])('artifactPreviewKind reads %s', (_, overrides, expected) => {
         expect(artifactPreviewKind(artifact(overrides))).toBe(expected)
+    })
+
+    test.each([
+        ['ArrowDown', 1, 4, 2],
+        ['ArrowDown', 3, 4, 3],
+        ['ArrowUp', 2, 4, 1],
+        ['ArrowUp', 0, 4, 0],
+        ['Home', 2, 4, 0],
+        ['End', 0, 4, 3],
+        ['Enter', 1, 4, null],
+        ['ArrowDown', 0, 0, null],
+    ])('listboxKeyTarget moves %s from %i of %i to %p', (key, current, count, expected) => {
+        expect(listboxKeyTarget(key, current, count)).toBe(expected)
     })
 
     it('visibleRunArtifacts keeps files the agent wrote and cited PostHog objects', () => {
