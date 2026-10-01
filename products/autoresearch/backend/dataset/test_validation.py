@@ -15,14 +15,16 @@ from products.autoresearch.backend.dataset.validation import (
 )
 
 
-def _mock_rows(positives: int, total: int, identified: int | None = None) -> list[list[list[int]]]:
+def _mock_rows(
+    positives: int, total: int, identified: int | None = None, inference: int | None = None
+) -> list[list[list[int]]]:
     # Query order: eligible count, sampled labeler, inference count. Sample size
     # equals total so the extrapolated positives line up with the input.
     eligible_identified = total if identified is None else identified
     return [
         [[eligible_identified, total]],
         [[eligible_identified, positives]],
-        [[eligible_identified]],
+        [[eligible_identified if inference is None else inference]],
     ]
 
 
@@ -34,9 +36,10 @@ class TestValidationWarnings(BaseTest):
         horizon_days: int = 7,
         training_lookback_days: int = 180,
         identified: int | None = None,
+        inference: int | None = None,
     ) -> ValidationResult:
         with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows") as mock_run:
-            mock_run.side_effect = _mock_rows(positives, total, identified=identified)
+            mock_run.side_effect = _mock_rows(positives, total, identified=identified, inference=inference)
             return _run_validation(
                 team=self.team,
                 target_event="$pageview",
@@ -67,6 +70,25 @@ class TestValidationWarnings(BaseTest):
         codes = [w.code for w in result.warnings]
         assert code in codes
         assert result.can_proceed is False
+
+    @parameterized.expand(
+        [
+            ("below_the_cap", 49_999, None),
+            ("at_the_cap", 50_000, "every 2 days"),
+            ("far_above_the_cap", 250_000, "every 6 days"),
+        ]
+    )
+    def test_a_large_scoring_population_is_advisory(self, _name: str, inference: int, rescore: str | None) -> None:
+        result = self._run(positives=100, total=1000, inference=inference)
+        size_warnings = [w for w in result.warnings if w.code == "population_too_large"]
+        assert result.can_proceed is True
+        assert result.requires_acknowledgement is False
+        if rescore is None:
+            assert size_warnings == []
+        else:
+            [warning] = size_warnings
+            assert warning.severity == "info"
+            assert rescore in warning.message
 
     def test_moderate_volume_is_warning(self) -> None:
         result = self._run(positives=30, total=200)

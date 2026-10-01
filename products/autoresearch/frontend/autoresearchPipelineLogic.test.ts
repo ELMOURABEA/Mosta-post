@@ -5,9 +5,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { autoresearchPipelineLogic, trainingRunProgress } from './autoresearchPipelineLogic'
+import { autoresearchPipelineLogic, scoringCoverage, trainingRunProgress } from './autoresearchPipelineLogic'
 import { autoresearchModelsList, autoresearchRetrieve } from './generated/api'
-import { AutoresearchTrainingRunApi, IterationTrailApi } from './generated/api.schemas'
+import { AutoresearchRunApi, AutoresearchTrainingRunApi, IterationTrailApi } from './generated/api.schemas'
 
 jest.mock('./generated/api', () => ({
     autoresearchRetrieve: jest.fn(),
@@ -47,6 +47,19 @@ function makeIteration(overrides: Partial<IterationTrailApi>): IterationTrailApi
     } as IterationTrailApi
 }
 
+function makeScoringRun(overrides: Partial<AutoresearchRunApi>): AutoresearchRunApi {
+    return {
+        id: 'scoring-run',
+        pipeline: 'pipeline-1',
+        run_type: 'inference',
+        status: 'completed',
+        rows_scored: 45000,
+        metrics: { rows_eligible: 250000 },
+        created_at: '2026-01-02T00:00:00Z',
+        ...overrides,
+    } as AutoresearchRunApi
+}
+
 describe('autoresearchPipelineLogic', () => {
     it('follows every page of models so a champion past the first page still counts', async () => {
         jest.clearAllMocks()
@@ -80,6 +93,32 @@ describe('autoresearchPipelineLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
         await expectLogic(logic).toFinishAllListeners()
         expect(mockRetrieve).toHaveBeenCalledTimes(1)
+    })
+
+    describe('scoringCoverage', () => {
+        it.each([
+            ['a rolling run', [makeScoringRun({})], { scored: 45000, eligible: 250000, rescoreDays: 6 }],
+            ['a run that scored everyone', [makeScoringRun({ metrics: { rows_eligible: 45000 } })], null],
+            ['a run from before the eligible count was recorded', [makeScoringRun({ metrics: {} })], null],
+            [
+                'an older rolling run superseded by a full one',
+                [
+                    makeScoringRun({ id: 'old', created_at: '2026-01-01T00:00:00Z' }),
+                    makeScoringRun({ id: 'new', rows_scored: 900, metrics: { rows_eligible: 900 } }),
+                ],
+                null,
+            ],
+            [
+                'a newer run that failed',
+                [
+                    makeScoringRun({}),
+                    makeScoringRun({ id: 'failed', status: 'failed', created_at: '2026-01-03T00:00:00Z' }),
+                ],
+                { scored: 45000, eligible: 250000, rescoreDays: 6 },
+            ],
+        ])('reads the coverage of %s', (_name, runs, expected) => {
+            expect(scoringCoverage(runs)).toEqual(expected)
+        })
     })
 
     describe('trainingRunProgress', () => {

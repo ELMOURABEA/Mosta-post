@@ -25,9 +25,12 @@ from products.autoresearch.backend.dataset.labeling import (
     IDENTIFIED_USERS_ONLY,
     LABELER_QUERY_MODIFIERS,
     MATERIALIZE_ROW_LIMIT,
+    ROLLING_SCORE_LIMIT,
     build_eligible_count_sql,
     build_inference_anchors_sql,
     build_random_t0_labeler_sql,
+    rolling_rescore_days,
+    rolling_score_limit,
 )
 from products.autoresearch.backend.query import run_hogql_rows
 
@@ -377,14 +380,26 @@ def _build_warnings(
             )
         )
 
-    largest = max(total_users, inference_size)
-    if largest >= MATERIALIZE_ROW_LIMIT:
+    if total_users >= MATERIALIZE_ROW_LIMIT:
         warnings.append(
             ValidationWarning(
                 code=ValidationWarningCode.POPULATION_TOO_LARGE,
-                message=f"This population has {largest} users. One run trains or scores at most "
+                message=f"The training population has {total_users} users. One run trains on at most "
                 f"{MATERIALIZE_ROW_LIMIT} users. Narrow the population.",
                 severity="error",
+            )
+        )
+
+    # Scoring above the cap rolls through the population, so a large one is advice, not a refusal.
+    if rolling_score_limit(inference_size) is not None:
+        rescore_days = rolling_rescore_days(eligible=inference_size, scored=ROLLING_SCORE_LIMIT)
+        warnings.append(
+            ValidationWarning(
+                code=ValidationWarningCode.POPULATION_TOO_LARGE,
+                message=f"The scoring population has {inference_size} users. Each run scores "
+                f"{ROLLING_SCORE_LIMIT} of them, starting with the users scored least recently, "
+                f"so everyone is rescored about every {rescore_days} days.",
+                severity="info",
             )
         )
 
