@@ -397,8 +397,8 @@ def _build_warnings(
             ValidationWarning(
                 code=ValidationWarningCode.POPULATION_TOO_LARGE,
                 message=f"The scoring population has {inference_size} users. Each run scores "
-                f"{ROLLING_SCORE_LIMIT} of them, starting with the users scored least recently, "
-                f"so everyone is rescored about every {rescore_days} days.",
+                f"{ROLLING_SCORE_LIMIT} of them, starting with users never scored, then users whose last "
+                f"score is oldest. Everyone is rescored about every {rescore_days} days.",
                 severity="info",
             )
         )

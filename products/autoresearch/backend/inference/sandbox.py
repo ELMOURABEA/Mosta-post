@@ -70,7 +70,7 @@ from products.autoresearch.backend.dataset.labeling import (
     build_inference_features_sql,
     build_random_t0_labeler_sql,
     build_training_features_sql,
-    rolling_score_limit,
+    rolling_selection,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.query import run_hogql
@@ -438,7 +438,7 @@ def _materialize_score_data(
     persons whose last score by this pipeline is oldest.
     """
     eligible = count_inference_anchors(team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user)
-    rolling_limit = rolling_score_limit(eligible)
+    rolling = rolling_selection(eligible=eligible, pipeline_id=str(pipeline.pk))
     feature_sql_resolved = feature_sql.replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
     score_sql, score_values = build_inference_features_sql(
         feature_sql=feature_sql_resolved,
@@ -448,14 +448,13 @@ def _materialize_score_data(
         target_event=pipeline.target_event,
         target_definition=pipeline.target_definition,
         team=team,
-        rolling_limit=rolling_limit,
-        pipeline_id=str(pipeline.pk),
+        rolling=rolling,
     )
     score_rows = _materialize_rows(team=team, sql=score_sql, values=score_values, user=user)
     _validate_rows_key_one_person(
         score_rows,
         source="inference feature_sql",
-        expected_count=eligible if rolling_limit is None else rolling_limit,
+        expected_count=eligible if rolling is None else rolling.limit,
     )
     logger.info(
         "autoresearch_score_materialized",
@@ -496,7 +495,7 @@ def count_inference_anchors(
     fails: an inner join or a WHERE on the joined table loses anchors without any row looking
     wrong, and a lost person is never scored again once the cadence advances past them.
 
-    This is the whole population. A rolling run scores ``rolling_score_limit()`` of them.
+    This is the whole population. A rolling run scores ``rolling_selection().limit`` of them.
     """
     anchors_sql, values = build_inference_anchors_sql(
         lookback_days=_feature_lookback_days(pipeline),

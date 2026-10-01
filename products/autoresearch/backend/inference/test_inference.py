@@ -49,6 +49,8 @@ _ANCHORS_RECIPE = {
     "model_class": "sklearn.linear_model.LogisticRegression",
     "model_params": {},
 }
+_STUB_CUTOFF_TS = 1_757_548_800
+
 _STUB_ROWS = [
     {"distinct_id": "user-1", "events_total_30d": 50, "days_since_last_seen": 2},
     {"distinct_id": "user-2", "events_total_30d": 10, "days_since_last_seen": 15},
@@ -510,7 +512,9 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         )
         mock_run.side_effect = self._count_then_feature([["user-1"], ["user-3"]], count=2)
 
-        stub_rows = _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+        stub_rows = _fetch_stub_feature_rows(
+            team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+        )
 
         assert {r["distinct_id"] for r in stub_rows.rows} == {"user-1", "user-3"}
         sql, values = self._sent(mock_run)
@@ -530,12 +534,15 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         pipeline = self._make_pipeline({})
         mock_run.side_effect = self._count_then_feature([["user-1"]], count=1)
 
-        _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+        _fetch_stub_feature_rows(
+            team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+        )
 
         sql, values = self._sent(mock_run)
         assert "argMax(is_identified, version) = 1" in sql
         assert f"event != '{PREDICTION_EVENT_NAME}'" in sql
-        assert "timestamp < now()" in sql
+        assert "timestamp < fromUnixTimestamp({cutoff_ts})" in sql
+        assert values["cutoff_ts"] == _STUB_CUTOFF_TS
         assert values["lookback"] == 30
 
     @parameterized.expand(
@@ -566,7 +573,9 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         pipeline = self._make_pipeline(population, target_event="downloaded_file")
         mock_run.side_effect = self._count_then_feature([["user-1"]], count=1)
 
-        _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+        _fetch_stub_feature_rows(
+            team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+        )
 
         sql, _values = self._sent(mock_run)
         for fragment in expected_fragments:
@@ -577,7 +586,9 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         # Widening to "all identified users" is the failure mode being prevented.
         pipeline = self._make_pipeline({"kind": "ever_performed_event"})
         with self.assertRaises(ValueError):
-            _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+            _fetch_stub_feature_rows(
+                team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+            )
         mock_run.assert_not_called()
 
     @parameterized.expand(
@@ -595,7 +606,9 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         pipeline = self._make_pipeline({})
         mock_run.side_effect = self._count_then_feature(rows, count=population_count)
         with self.assertRaises(InferenceRunError):
-            _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+            _fetch_stub_feature_rows(
+                team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+            )
 
     @parameterized.expand([("full_page", False), ("has_more", True)])
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
@@ -609,7 +622,9 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
             HogQLResult(columns=["distinct_id"], rows=[[f"person-{i}"] for i in range(n)], has_more=has_more),
         ]
         with self.assertRaises(InferenceRunError):
-            _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+            _fetch_stub_feature_rows(
+                team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+            )
 
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
     def test_a_population_at_the_cap_scores_a_rolling_subset(self, mock_run: MagicMock):
@@ -618,13 +633,16 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
             [[f"person-{i}"] for i in range(ROLLING_SCORE_LIMIT)], count=_MATERIALIZE_ROW_LIMIT * 5
         )
 
-        stub_rows = _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
+        stub_rows = _fetch_stub_feature_rows(
+            team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, cutoff_ts=_STUB_CUTOFF_TS, user=self.user
+        )
 
         assert len(stub_rows.rows) == ROLLING_SCORE_LIMIT
         assert stub_rows.eligible == _MATERIALIZE_ROW_LIMIT * 5
         sql, values = self._sent(mock_run)
         assert f"LIMIT {ROLLING_SCORE_LIMIT}" in sql
         assert values["rolling_pipeline_id"] == str(pipeline.pk)
+        assert values["cutoff_ts"] == _STUB_CUTOFF_TS
 
 
 class TestResolveDistinctIds(TeamScopedTestMixin, BaseTest):

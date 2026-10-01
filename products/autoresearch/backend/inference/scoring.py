@@ -52,10 +52,11 @@ from products.autoresearch.backend.dataset.labeling import (
     IDENTIFIED_USERS_ONLY,
     LABELER_QUERY_MODIFIERS,
     PREDICTION_EVENT_NAME,
+    RollingSelection,
     build_inference_anchors_sql,
     build_inference_features_sql,
     build_training_features_sql,
-    rolling_score_limit,
+    rolling_selection,
 )
 from products.autoresearch.backend.inference.sandbox import (
     _FOLD_COL,
@@ -330,7 +331,9 @@ def score_population(
         )
     recipe = model.model_recipe or {}
     if recipe.get("stub"):
-        stub_rows = _fetch_stub_feature_rows(team=team, pipeline=pipeline, recipe=recipe, user=acting_user)
+        stub_rows = _fetch_stub_feature_rows(
+            team=team, pipeline=pipeline, recipe=recipe, cutoff_ts=cutoff_ts, user=acting_user
+        )
         return ScoredPopulation(
             rows=_score_rows(stub_rows.rows), holdout_auc=model.holdout_score, rows_eligible=stub_rows.eligible
         )
@@ -546,7 +549,7 @@ def _feature_lookback_days(pipeline: AutoresearchPipeline) -> int:
 
 
 def _fetch_stub_feature_rows(
-    *, team: Team, pipeline: AutoresearchPipeline, recipe: dict[str, Any], user: User
+    *, team: Team, pipeline: AutoresearchPipeline, recipe: dict[str, Any], cutoff_ts: int, user: User
 ) -> InferenceRows:
     """
     Run a stub recipe's feature SQL restricted to the inference population.
@@ -557,7 +560,9 @@ def _fetch_stub_feature_rows(
     the population being scored and not every person on the team. The rows are checked
     against the population count, as the anchored paths check theirs against the anchors,
     because stub SQL that drops a member leaves every returned row looking valid. A population
-    at or above the cap scores a rolling subset, as the anchored paths do.
+    at or above the cap scores a rolling subset, as the anchored paths do. The population and the
+    rolling ranking bind the run's ``cutoff_ts``, so a retry selects the same people, while the
+    stub SQL itself keeps reading at now().
     """
     feature_sql = str(recipe.get("feature_sql") or "")
     if not feature_sql:
@@ -568,6 +573,7 @@ def _fetch_stub_feature_rows(
     population = _population_query(
         population=pipeline.inference_population,
         lookback_days=lookback_days,
+        cutoff_ts=cutoff_ts,
         target_event=pipeline.target_event,
         target_definition=pipeline.target_definition,
         team=team,
@@ -577,24 +583,24 @@ def _fetch_stub_feature_rows(
         _require_one_row_per_person(rows, source="stub feature_sql", expected_count=None)
         return InferenceRows(rows=rows, eligible=len(rows))
     eligible = _count_population(team=team, population=population, user=user)
-    rolling_limit = rolling_score_limit(eligible)
-    if rolling_limit is not None:
+    rolling = rolling_selection(eligible=eligible, pipeline_id=str(pipeline.pk))
+    if rolling is not None:
         population = (
             _population_query(
                 population=pipeline.inference_population,
                 lookback_days=lookback_days,
+                cutoff_ts=cutoff_ts,
                 target_event=pipeline.target_event,
                 target_definition=pipeline.target_definition,
                 team=team,
-                rolling_limit=rolling_limit,
-                pipeline_id=str(pipeline.pk),
+                rolling=rolling,
             )
             or population
         )
     sql = f"SELECT * FROM ({feature_sql}) AS f WHERE f.distinct_id IN ({population.sql})"
     rows = _person_rows(_query(team=team, sql=sql, values=population.values, user=user, what="Feature"))
     _require_one_row_per_person(
-        rows, source="stub feature_sql", expected_count=eligible if rolling_limit is None else rolling_limit
+        rows, source="stub feature_sql", expected_count=eligible if rolling is None else rolling.limit
     )
     return InferenceRows(rows=rows, eligible=eligible)
 
@@ -609,28 +615,28 @@ def _population_query(
     *,
     population: dict[str, Any] | None,
     lookback_days: int,
+    cutoff_ts: int | None = None,
     target_event: str = "",
     target_definition: dict[str, Any] | None = None,
     team: Team | None = None,
-    rolling_limit: int | None = None,
-    pipeline_id: str | None = None,
+    rolling: RollingSelection | None = None,
 ) -> _PopulationQuery | None:
     """
     A ``SELECT person_id`` for the people in the inference population, one row each, from the
     scorer's own anchor query, so it is restricted to identified users under the v1 scope. None only when nothing restricts the population.
     A configured filter that cannot be compiled raises, because widening to everyone is
-    the failure being prevented. ``rolling_limit`` keeps only a rolling subset of the people.
+    the failure being prevented. ``rolling`` keeps only a rolling subset of the people.
     """
     if not IDENTIFIED_USERS_ONLY and not (population or {}).get("properties") and not (population or {}).get("kind"):
         return None
     anchors_sql, values = build_inference_anchors_sql(
         lookback_days=lookback_days,
         inference_population=population,
+        cutoff_ts=cutoff_ts,
         target_event=target_event,
         target_definition=target_definition,
         team=team,
-        rolling_limit=rolling_limit,
-        pipeline_id=pipeline_id,
+        rolling=rolling,
     )
     return _PopulationQuery(sql=f"SELECT person_id FROM ({anchors_sql.strip()})", values=values)
 
@@ -763,7 +769,7 @@ def _fetch_inference_rows(
         eligible = count_inference_anchors(team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user)
     except SandboxInferenceError as exc:
         raise InferenceRunError(str(exc)) from exc
-    rolling_limit = rolling_score_limit(eligible)
+    rolling = rolling_selection(eligible=eligible, pipeline_id=str(pipeline.pk))
     sql, values = build_inference_features_sql(
         feature_sql=feature_sql,
         lookback_days=_feature_lookback_days(pipeline),
@@ -772,12 +778,11 @@ def _fetch_inference_rows(
         target_event=pipeline.target_event,
         target_definition=pipeline.target_definition,
         team=team,
-        rolling_limit=rolling_limit,
-        pipeline_id=str(pipeline.pk),
+        rolling=rolling,
     )
     rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Inference features"))
     _require_one_row_per_person(
-        rows, source="inference feature_sql", expected_count=eligible if rolling_limit is None else rolling_limit
+        rows, source="inference feature_sql", expected_count=eligible if rolling is None else rolling.limit
     )
     return InferenceRows(rows=rows, eligible=eligible)
 

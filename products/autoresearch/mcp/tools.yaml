@@ -642,8 +642,8 @@ tools:
             low_negatives (fewer than 20 examples), horizon_exceeds_lookback (raise training_lookback_days above
             horizon_days), and population_too_large with severity error (narrow the training population). Non-blocking
             warnings include extreme_imbalance (base rate below 1%) and near_universal (above 95%). population_too_large
-            with severity info means the inference population is above the cap, so each scoring run scores the users
-            scored least recently and the whole population is rescored over a few days. An action target needs the
+            with severity info means the inference population is above the cap, so each scoring run scores users never
+            scored first, then those scored longest ago, and the whole population is rescored over a few days. An action target needs the
             action:read scope. Always validate before creating.
         feature_flag: autoresearch
     autoresearch-validate-online-create:

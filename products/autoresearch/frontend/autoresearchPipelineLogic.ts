@@ -229,8 +229,8 @@ export interface autoresearchPipelineLogicValues {
     runsError: boolean
     runsLoading: boolean
     scoreResult: AutoresearchRunApi | null
-    scoringCoverage: ScoringCoverage | null
     scoreResultLoading: boolean
+    scoringCoverage: ScoringCoverage | null
     startTrainingResult: AutoresearchTrainingRunApi | null
     startTrainingResultLoading: boolean
     suggestionDraft: string

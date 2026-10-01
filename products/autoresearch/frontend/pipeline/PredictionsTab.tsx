@@ -63,7 +63,7 @@ function ScoringCoverageBanner(): JSX.Element | null {
     return (
         <LemonBanner type="info">
             The latest run scored {humanFriendlyNumber(scored)} of {humanFriendlyNumber(eligible)} users, starting with
-            the users scored least recently. Everyone is rescored about every {rescoreDays} days.
+            users never scored, then those scored longest ago. Everyone is rescored about every {rescoreDays} days.
         </LemonBanner>
     )
 }

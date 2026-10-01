@@ -1146,7 +1146,7 @@ class AutoresearchRunSerializer(DataclassSerializer):
         help_text=(
             "Run metrics: score distribution summary, validation AUC, etc. An inference run records "
             "'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run "
-            "scored the rolling part of the population whose last score was oldest."
+            "scored a rolling part of the population: users never scored first, then users whose last score was oldest."
         )
     )
     error = serializers.CharField(required=False, allow_blank=True, help_text="Error message if the run failed.")
@@ -1182,8 +1182,8 @@ class ValidationWarningSerializer(serializers.Serializer):
         help_text=(
             "Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity "
             "'error', mean a training run would fail: fix the definition before creating. 'population_too_large' "
-            "with severity 'info' means each scoring run scores a rolling part of the population, starting with "
-            "the users scored least recently. 'low_volume', 'low_positives' and "
+            "with severity 'info' means each scoring run scores a rolling part of the population: users never scored "
+            "first, then users whose last score was oldest. 'low_volume', 'low_positives' and "
             "'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). "
             "'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are "
             "severity 'warning'."

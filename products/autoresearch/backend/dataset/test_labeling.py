@@ -22,6 +22,8 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
     PREDICTION_EVENT_NAME,
+    ROLLING_SCORE_LIMIT,
+    RollingSelection,
     _build_labeled_users_cte,
     _build_population_kind_conditions,
     _compile_population_filters,
@@ -30,6 +32,8 @@ from products.autoresearch.backend.dataset.labeling import (
     build_inference_anchors_sql,
     build_inference_features_sql,
     build_random_t0_labeler_sql,
+    rolling_rescore_days,
+    rolling_selection,
     strip_sql_comments,
 )
 from products.autoresearch.backend.query import run_hogql_rows
@@ -102,6 +106,20 @@ class TestBuildInferenceFeaturesSql(BaseTest):
         )
         self.assertNotIn("{anchors}", sql)
         self.assertNotIn("--", sql)
+
+
+class TestRollingSelection(SimpleTestCase):
+    @parameterized.expand(
+        [("at_the_cap", 50_000), ("one_cycle_past_the_minimum_window", 1_400_000), ("huge", 9_000_000)]
+    )
+    def test_score_history_window_outlasts_a_full_cycle(self, _name: str, eligible: int) -> None:
+        rolling = rolling_selection(eligible=eligible, pipeline_id="p")
+        assert rolling is not None
+        assert rolling.limit == ROLLING_SCORE_LIMIT
+        assert rolling.scored_lookback_days > rolling_rescore_days(eligible=eligible, scored=rolling.limit)
+
+    def test_a_population_below_the_cap_scores_whole(self) -> None:
+        assert rolling_selection(eligible=49_999, pipeline_id="p") is None
 
 
 class TestPopulationFilterCompilation(SimpleTestCase):
@@ -647,8 +665,7 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
                 lookback_days=30,
                 inference_population={},
                 cutoff_ts=int(cutoff.timestamp()),
-                rolling_limit=2,
-                pipeline_id=pipeline_id,
+                rolling=RollingSelection(pipeline_id=pipeline_id, limit=2, scored_lookback_days=30),
             )
             rows = run_hogql_rows(
                 team=self.team,
