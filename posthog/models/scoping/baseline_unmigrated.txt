@@ -107,7 +107,6 @@ LLMPromptLabel
 LLMProviderKey
 LLMSkill
 LLMTraceSummary
-Link
 LogsAlertConfiguration
 LogsExclusionRule
 LogsRetentionRule

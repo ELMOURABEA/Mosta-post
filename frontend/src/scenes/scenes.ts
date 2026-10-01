@@ -253,8 +253,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.InviteSignup]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
     [Scene.Coupons]: { name: 'Coupons', organizationBased: true, layout: 'app-container' },
-    [Scene.Link]: { projectBased: true },
-    [Scene.Links]: { projectBased: true, name: 'Links' },
     [Scene.LiveEvents]: {
         projectBased: true,
         name: 'Live events',
@@ -902,8 +900,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
-    [urls.links()]: [Scene.Links, 'links'],
-    [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
