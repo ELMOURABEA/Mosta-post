@@ -1,14 +1,15 @@
 import { useMountedLogic, useValues } from 'kea'
-import { JSX, useCallback, useEffect, useRef } from 'react'
+import { Fragment, JSX, useCallback, useEffect, useRef } from 'react'
 
 import { IconNotebook } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
@@ -22,6 +23,7 @@ import {
     SignalReport,
 } from '../../types'
 import { mergeReportRows, selectedFlatListSections } from '../../utils/flatReportList'
+import { rankingSortScore } from '../../utils/reportOrdering'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ReportCard } from '../cards/ReportCard'
 import { ReportContextMenu } from '../cards/ReportContextMenu'
@@ -198,7 +200,9 @@ export function ReportsTab(): JSX.Element {
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
-    const { hasActiveFilters, visibleStateFilter, scope, sortField, sortDirection } = useValues(inboxFiltersLogic)
+    const { hasActiveFilters, visibleStateFilter, scope, sortField, sortDirection, modelSortAvailable } =
+        useValues(inboxFiltersLogic)
+    const rankingSortField = modelSortAvailable && isRankingSortField(sortField) ? sortField : null
     const sections = useSectionStates()
     useInboxViewedEvent(sections)
 
@@ -228,6 +232,10 @@ export function ReportsTab(): JSX.Element {
         SignalReport[]
     >
     const rows = mergeReportRows(reportsBySection, selectedSections, sortField, sortDirection)
+    // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
+    const firstUnscoredIndex = rankingSortField
+        ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
+        : -1
     useReportImpressions(rows, selectedSections)
     // Multi-select ranges over this order, and drops any id the merged list no longer holds.
     useSelectableReportList(rows.map(({ report }) => report.id))
@@ -356,20 +364,26 @@ export function ReportsTab(): JSX.Element {
                 )
             ) : (
                 <div className="@container flex flex-col gap-1.5">
-                    {rows.map(({ report, sectionKey }) => (
-                        <ReportContextMenu key={report.id} report={report} sectionKey={sectionKey}>
-                            <ReportCard
-                                report={report}
-                                sectionKey={sectionKey}
-                                selectable
-                                onRestore={() =>
-                                    reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(
-                                        report.id,
-                                        'list_row'
-                                    )
-                                }
-                            />
-                        </ReportContextMenu>
+                    {rows.map(({ report, sectionKey }, index) => (
+                        <Fragment key={report.id}>
+                            {index > 0 && index === firstUnscoredIndex && (
+                                <LemonDivider label="Not scored yet" className="my-2 text-xs text-tertiary" />
+                            )}
+                            <ReportContextMenu report={report} sectionKey={sectionKey}>
+                                <ReportCard
+                                    report={report}
+                                    sectionKey={sectionKey}
+                                    selectable
+                                    rankingSortField={rankingSortField}
+                                    onRestore={() =>
+                                        reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(
+                                            report.id,
+                                            'list_row'
+                                        )
+                                    }
+                                />
+                            </ReportContextMenu>
+                        </Fragment>
                     ))}
                     {/* Skeleton cards continue the list while the next pages load – sleeker than a spinner. */}
                     {pageLoading && <CardSkeleton count={2} variant="cards" dashed />}
