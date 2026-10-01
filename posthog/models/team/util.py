@@ -41,6 +41,7 @@ TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
 # Remove an entry in the migration that drops its table.
 RETIRED_TEAM_TABLES = (
     "ee_single_session_summary",
+    "posthog_link",
     "posthog_livedebuggerbreakpoint",
     "user_interviews_intervieweecontext",
     "user_interviews_userinterview",
