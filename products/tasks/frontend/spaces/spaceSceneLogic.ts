@@ -49,6 +49,18 @@ export function autoArchiveDaysError(days: number | null): string | null {
     return null
 }
 
+const SPACE_NAME_MAX_LENGTH = 128
+
+export function spaceNameError(name: string): string | null {
+    if (!name) {
+        return 'Enter a name'
+    }
+    if (name.length > SPACE_NAME_MAX_LENGTH) {
+        return `Use ${SPACE_NAME_MAX_LENGTH} characters or fewer`
+    }
+    return null
+}
+
 export interface SpaceSceneLogicProps {
     id: string
 }
@@ -70,9 +82,16 @@ export interface spaceSceneLogicValues {
     composerFocusRequest: number
     composerRepositoryConfig: SpaceComposerRepositoryConfig
     creatorId: number | null
+    deleteDisabledReason: string | null
+    dominantRepository: string | null
     feedGroups: TodayWorkGroup[]
+    feedRepositories: Record<string, string | null>
     members: TaskUserBasicInfoApi[]
     membersLoading: boolean
+    nameDraft: string | null
+    nameError: string | null
+    pendingName: string | null
+    renameDisabledReason: string | null
     savingSpace: boolean
     sessions: TaskListItemApi[]
     sessionsById: Record<string, TaskListItemApi>
@@ -101,6 +120,9 @@ export interface spaceSceneLogicActions {
         spaces: ChannelDTOApi[]
     } // todaySpacesLogic
     loadTaskActivity: (_?: void | undefined) => void // todaySpacesLogic
+    commitName: () => {
+        value: true
+    }
     deleteSpace: () => {
         value: true
     }
@@ -182,6 +204,9 @@ export interface spaceSceneLogicActions {
         members: TaskUserBasicInfoApi[]
         payload?: number[]
     }
+    setNameDraft: (name: string | null) => {
+        name: string | null
+    }
     setStarred: (starred: boolean) => {
         starred: boolean
     }
@@ -198,6 +223,9 @@ export interface spaceSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         creatorId: (space: ChannelDTOApi | null) => number | null
+        nameError: (nameDraft: string | null) => string | null
+        renameDisabledReason: (space: ChannelDTOApi | null) => string | null
+        deleteDisabledReason: (space: ChannelDTOApi | null, savingSpace: boolean) => string | null
         autoArchiveSelection: (space: ChannelDTOApi | null, autoArchiveCustomOpen: boolean) => AutoArchiveSelection
         autoArchiveDisabledReason: (
             space: ChannelDTOApi | null,
@@ -212,6 +240,11 @@ export interface spaceSceneLogicMeta {
         ) => string | null
         activeTab: (location: { hash: string; pathname: string; search: string }) => SpaceTab
         feedGroups: (sessions: TaskListItemApi[]) => TodayWorkGroup[]
+        dominantRepository: (sessions: TaskListItemApi[]) => string | null
+        feedRepositories: (
+            sessions: TaskListItemApi[],
+            dominantRepository: string | null
+        ) => Record<string, string | null>
         sessionsById: (sessions: TaskListItemApi[]) => Record<string, TaskListItemApi>
         breadcrumbs: (space: ChannelDTOApi | null, arg: any) => Breadcrumb[]
         composerRepositoryConfig: (space: ChannelDTOApi | null) => SpaceComposerRepositoryConfig
@@ -249,6 +282,8 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         setAutoArchiveSelection: (selection: AutoArchiveSelection) => ({ selection }),
         setAutoArchiveCustomDays: (days: number | null) => ({ days }),
         saveAutoArchiveCustomDays: true,
+        setNameDraft: (name: string | null) => ({ name }),
+        commitName: true,
     }),
     loaders(({ props, values }) => ({
         space: [
@@ -318,6 +353,16 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                 savingFinished: () => false,
             },
         ],
+        // `null` shows the saved name. The draft stays after a failed rename, so the user can try again.
+        nameDraft: [null as string | null, { setNameDraft: (_, { name }) => name, loadSpaceSuccess: () => null }],
+        pendingName: [
+            null as string | null,
+            {
+                updateSpace: (state, { patch }) => patch.name ?? state,
+                spaceSaved: () => null,
+                savingFinished: () => null,
+            },
+        ],
         autoArchiveCustomOpen: [false, { setAutoArchiveSelection: (_, { selection }) => selection === 'custom' }],
         autoArchiveCustomDays: [
             null as number | null,
@@ -330,6 +375,30 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
     }),
     selectors({
         creatorId: [(s) => [s.space], (space: ChannelDTOApi | null): number | null => space?.created_by?.id ?? null],
+        nameError: [
+            (s) => [s.nameDraft],
+            (nameDraft: string | null): string | null => (nameDraft === null ? null : spaceNameError(nameDraft.trim())),
+        ],
+        renameDisabledReason: [
+            (s) => [s.space],
+            (space: ChannelDTOApi | null): string | null =>
+                space?.system_role === 'general'
+                    ? 'The general space can’t be renamed.'
+                    : space?.system_role === 'personal'
+                      ? 'Your personal space can’t be renamed.'
+                      : null,
+        ],
+        deleteDisabledReason: [
+            (s) => [s.space, s.savingSpace],
+            (space: ChannelDTOApi | null, savingSpace: boolean): string | null =>
+                space?.system_role === 'general'
+                    ? 'The general space can’t be deleted'
+                    : space?.system_role === 'personal'
+                      ? 'Your personal space can’t be deleted'
+                      : savingSpace
+                        ? 'Saving your last change'
+                        : null,
+        ],
         // A saved value outside the presets shows as custom.
         autoArchiveSelection: [
             (s) => [s.space, s.autoArchiveCustomOpen],
@@ -376,6 +445,36 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
             (s) => [s.sessions],
             (sessions: TaskListItemApi[]): TodayWorkGroup[] =>
                 groupByDay(sessions.filter((task) => !task.archived).map(sessionItem)),
+        ],
+        // Like PostHog Desktop, a card names its repository only when it differs from the space's most used one.
+        // A tie goes to the repository of the most recently active session.
+        dominantRepository: [
+            (s) => [s.sessions],
+            (sessions: TaskListItemApi[]): string | null => {
+                const counts = new Map<string, number>()
+                for (const task of sessions) {
+                    if (!task.archived && task.repository) {
+                        counts.set(task.repository, (counts.get(task.repository) ?? 0) + 1)
+                    }
+                }
+                let dominant: string | null = null
+                for (const [repository, count] of counts) {
+                    if (dominant === null || count > (counts.get(dominant) ?? 0)) {
+                        dominant = repository
+                    }
+                }
+                return dominant
+            },
+        ],
+        feedRepositories: [
+            (s) => [s.sessions, s.dominantRepository],
+            (sessions: TaskListItemApi[], dominantRepository: string | null): Record<string, string | null> =>
+                Object.fromEntries(
+                    sessions.map((task) => [
+                        task.id,
+                        task.repository && task.repository !== dominantRepository ? task.repository : null,
+                    ])
+                ),
         ],
         sessionsById: [
             (s) => [s.sessions],
@@ -426,6 +525,22 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                 actions.updateSpace({ auto_archive_after_days: values.autoArchiveCustomDays })
             }
         },
+        // Runs on blur and on Enter, so a rename that is already in flight is not sent twice.
+        commitName: () => {
+            const { nameDraft, nameError, pendingName, renameDisabledReason, space } = values
+            if (nameDraft === null || nameError || renameDisabledReason || !space) {
+                return
+            }
+            const name = nameDraft.trim()
+            if (name === pendingName) {
+                return
+            }
+            if (name === space.name) {
+                actions.setNameDraft(null)
+                return
+            }
+            actions.updateSpace({ name })
+        },
         // Open the new session like the web's new-session composer does, and list it for when the user comes back.
         sessionStarted: ({ sessionId }) => {
             actions.loadSessions()
@@ -450,6 +565,10 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         updateSpace: async ({ patch }) => {
             try {
                 actions.spaceSaved(await taskChannelsPartialUpdate(String(values.currentTeamId), props.id, patch))
+                if (patch.name !== undefined) {
+                    // The backend normalizes the name, so show what it saved.
+                    actions.setNameDraft(null)
+                }
                 actions.loadSpaces()
             } catch (error) {
                 toast.error({ title: (error as { detail?: string }).detail ?? 'Couldn’t save this change. Try again.' })

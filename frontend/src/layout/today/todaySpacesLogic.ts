@@ -28,8 +28,15 @@ import {
     TaskActivityReadMarkerApi,
     TaskListItemApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    SpaceActivity,
+    SpacePresence,
+    lastActivityBySpace,
+    presenceBySpace,
+} from 'products/tasks/frontend/spaces/spacePresence'
 import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
+import { TodaySpacePreview, spacePreview } from './todayPreviewCards'
 import {
     DEFAULT_RECENT_FILTERS,
     TodayRecentFilters,
@@ -63,6 +70,10 @@ const RECENT_ITEM_LIMIT = 30
 const UNREAD_ACTIVITY_LIMIT = 200
 // The sidebar and a space scene both refresh on mount, so collapse their requests into one.
 const UNREAD_ACTIVITY_DEBOUNCE_MS = 100
+// Like PostHog Desktop: one page of the team's newest activity across all spaces, polled slowly.
+// A space whose latest activity sits below this page shows no faces.
+const SPACE_PRESENCE_FETCH_LIMIT = 100
+const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000
 
 export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
 
@@ -141,7 +152,11 @@ export interface todaySpacesLogicValues {
     recentTasksUnavailable: boolean
     sectionHeights: Partial<Record<TodayWorkSectionId, number>>
     sortedSpaces: ChannelDTOApi[]
+    spaceActivity: SpaceActivity
+    spaceActivityLoading: boolean
     spaceNames: Record<string, string>
+    spacePresence: Record<string, SpacePresence>
+    spacePreviews: Record<string, TodaySpacePreview>
     spaces: ChannelDTOApi[]
     spacesLoading: boolean
     spacesUnavailable: boolean
@@ -215,6 +230,27 @@ export interface todaySpacesLogicActions {
         payload?: any
     ) => {
         recentTasks: TaskListItemApi[]
+        payload?: any
+    }
+    loadSpaceActivity: () => any
+    loadSpaceActivityFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSpaceActivitySuccess: (
+        spaceActivity: {
+            lastActivityAt: Record<string, string>
+            presence: Record<string, SpacePresence>
+        },
+        payload?: any
+    ) => {
+        spaceActivity: {
+            lastActivityAt: Record<string, string>
+            presence: Record<string, SpacePresence>
+        }
         payload?: any
     }
     loadSpaces: () => any
@@ -331,6 +367,11 @@ export interface todaySpacesLogicMeta {
         recentLoading: (recentTasksLoading: boolean, conversationHistoryLoading: boolean) => boolean
         unreadSessionIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
         unreadSpaceIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
+        spacePresence: (spaceActivity: SpaceActivity) => Record<string, SpacePresence>
+        spacePreviews: (
+            visibleSpaces: ChannelDTOApi[],
+            spaceActivity: SpaceActivity
+        ) => Record<string, TodaySpacePreview>
     }
 }
 
@@ -417,6 +458,25 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                         limit: RECENT_SESSION_LIMIT,
                     })
                     return response.results
+                },
+            },
+        ],
+        spaceActivity: [
+            { presence: {}, lastActivityAt: {} } as SpaceActivity,
+            {
+                loadSpaceActivity: async () => {
+                    if (!values.currentTeamId) {
+                        return { presence: {}, lastActivityAt: {} }
+                    }
+                    const response = await tasksList(String(values.currentTeamId), {
+                        ordering: '-last_activity_at',
+                        basic: true,
+                        limit: SPACE_PRESENCE_FETCH_LIMIT,
+                    })
+                    return {
+                        presence: presenceBySpace(response.results, Date.now()),
+                        lastActivityAt: lastActivityBySpace(response.results),
+                    }
                 },
             },
         ],
@@ -579,6 +639,26 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             (s) => [s.taskActivity],
             (taskActivity: TaskActivityDTOApi[]): Set<string> => unreadSpaceIds(taskActivity),
         ],
+        spacePresence: [
+            (s) => [s.spaceActivity],
+            (spaceActivity: SpaceActivity): Record<string, SpacePresence> => spaceActivity.presence,
+        ],
+        // One object per space that changes only when its inputs do, so the hover card's payload stays stable.
+        spacePreviews: [
+            (s) => [s.visibleSpaces, s.spaceActivity],
+            (visibleSpaces: ChannelDTOApi[], spaceActivity: SpaceActivity): Record<string, TodaySpacePreview> =>
+                Object.fromEntries(
+                    visibleSpaces.map((space) => [
+                        space.id,
+                        spacePreview(
+                            space,
+                            spaceLabel(space),
+                            spaceActivity.presence[space.id],
+                            spaceActivity.lastActivityAt[space.id]
+                        ),
+                    ])
+                ),
+        ],
     }),
     listeners(({ actions, values }) => {
         // Reading a session anywhere in the app clears it, so the rail follows the open session rather than clicks.
@@ -639,9 +719,15 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadSpaces()
         actions.loadPinnedTasks()
         actions.loadRecentTasks()
+        // Setup runs now and again whenever the tab comes back, so the faces refresh on return.
+        cache.disposables.add(() => {
+            actions.loadSpaceActivity()
+            const pollTimer = window.setInterval(() => actions.loadSpaceActivity(), SPACE_PRESENCE_POLL_INTERVAL_MS)
+            return () => clearInterval(pollTimer)
+        }, 'spacePresencePoll')
     }),
 ])

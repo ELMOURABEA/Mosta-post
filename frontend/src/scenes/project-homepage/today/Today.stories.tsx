@@ -1,16 +1,42 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
+import { ReactNode } from 'react'
+
+import { Card } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
+import { sessionPreview, spacePreview } from '~/layout/today/todayPreviewCards'
+import { TodaySessionHoverCard } from '~/layout/today/TodaySessionHoverCard'
+import { todaySessionSelectionLogic } from '~/layout/today/todaySessionSelectionLogic'
+import { TodaySpaceHoverCard } from '~/layout/today/TodaySpaceHoverCard'
+import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
+import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+
+const ADA = {
+    id: 1,
+    uuid: 'user-ada',
+    distinct_id: 'user-ada',
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    email: 'ada@example.com',
+}
+const GRACE = {
+    id: 7,
+    uuid: 'user-grace',
+    distinct_id: 'user-grace',
+    first_name: 'Grace',
+    last_name: 'Hopper',
+    email: 'grace@example.com',
+}
 
 const SPACES = [
     {
@@ -43,6 +69,7 @@ const SPACES = [
         repositories: ['example-org/web', 'example-org/billing'],
         auto_archive_after_days: null,
         created_at: '2026-09-02T09:00:00Z',
+        created_by: ADA,
         starred: true,
         system_role: null,
     },
@@ -75,7 +102,7 @@ const PINNED_SESSIONS = [
         channel: 'space-checkout',
         description_preview: 'The checkout test fails about once in ten runs. Find the race and make the test stable.',
         repository: 'example-org/webapp',
-        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
+        created_by: { id: 1, uuid: 'user-ada', first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
     },
 ]
 
@@ -91,11 +118,28 @@ const RECENT_SESSIONS = [
             id: 'run-1',
             status: 'completed',
             environment: 'cloud',
-            output: { pr_url: 'https://github.com/example-org/webapp/pull/421' },
+            output: {
+                pr_url: 'https://github.com/example-org/webapp/pull/421',
+                pr_urls: [
+                    'https://github.com/example-org/webapp/pull/422',
+                    'https://github.com/example-org/webapp/pull/423',
+                ],
+            },
         },
         description_preview: 'Retry the billing webhook three times with a backoff before it reports a failure.',
         repository: 'example-org/webapp',
-        created_by: { id: 179, first_name: 'John', last_name: 'Baker', email: 'john@example.com' },
+        created_by: { id: 179, uuid: 'user-john', first_name: 'John', last_name: 'Baker', email: 'john@example.com' },
+    },
+    {
+        id: 'task-3',
+        channel: 'space-checkout',
+        title: 'Speed up the invoice export',
+        archived: false,
+        last_activity_at: '2026-09-28T15:30:00Z',
+        latest_run: { id: 'run-3', status: 'completed', environment: 'cloud', output: null },
+        description_preview: 'The monthly invoice export takes minutes for large teams. Batch the queries.',
+        repository: 'example-org/billing',
+        created_by: { id: 42, first_name: 'Grace', last_name: 'Hopper', email: 'grace@example.com' },
     },
     {
         id: 'task-2',
@@ -106,8 +150,24 @@ const RECENT_SESSIONS = [
         latest_run: { status: 'failed', environment: 'cloud', output: null },
         description_preview: 'Trial starts dropped last week. Find the step where people leave.',
         repository: null,
-        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
+        created_by: { id: 1, uuid: 'user-ada', first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
     },
+]
+
+// The unfiltered team-wide page the sidebar reads presence from: a teammate is working in the space right now.
+const TEAM_SESSIONS = [
+    {
+        id: 'task-teammate',
+        channel: 'space-checkout',
+        title: 'Speed up the checkout page',
+        archived: false,
+        last_activity_at: '2026-09-28T18:28:00Z',
+        latest_run: { id: 'run-teammate', status: 'in_progress', environment: 'cloud', output: null },
+        description_preview: 'The checkout page takes too long to load. Find the slow requests.',
+        repository: 'example-org/webapp',
+        created_by: { id: 7, uuid: 'user-grace', first_name: 'Grace', last_name: 'Hopper', email: 'grace@example.com' },
+    },
+    ...RECENT_SESSIONS,
 ]
 
 const LIBRARY = [
@@ -203,7 +263,9 @@ const meta: Meta = {
                         ? PINNED_SESSIONS
                         : params.get('created_by') || params.get('channel') === 'space-checkout'
                           ? RECENT_SESSIONS
-                          : []
+                          : params.get('channel')
+                            ? []
+                            : TEAM_SESSIONS
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/task_activity/': {
@@ -307,6 +369,15 @@ export const SpacePage: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }
 
+// A Cmd-click pick can't be held in a static story, so the play step selects a pinned and a recent row through the logic.
+export const SpacesPaneWithSelectedSessions: Story = {
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findAllByText('Add a retry to the billing webhook')
+        todaySessionSelectionLogic.actions.setSelection({ ids: ['task-pinned', 'task-1'], anchorId: 'task-1' })
+    },
+}
+
 export const SpacesBrowse: Story = {
     parameters: { pageUrl: urls.taskSpaces() },
 }
@@ -327,4 +398,72 @@ export const ToolsPane: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByLabelText('Tools'))
     },
+}
+
+export const NarrowWindow: Story = {
+    parameters: { testOptions: { viewport: { width: 800, height: 900 } } },
+}
+
+export const NarrowWindowWithSidebar: Story = {
+    parameters: { testOptions: { viewport: { width: 800, height: 900 } } },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Home'))
+    },
+}
+
+// The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
+function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
+    return (
+        <div className="p-4">
+            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-md">
+                {children}
+            </Card>
+        </div>
+    )
+}
+
+export const SessionHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodaySessionHoverCard
+                preview={sessionPreview(
+                    sessionItem({
+                        ...RECENT_SESSIONS[1],
+                        latest_run: {
+                            ...RECENT_SESSIONS[1].latest_run,
+                            output: {
+                                pr_url: 'https://github.com/example-org/webapp/pull/421',
+                                final_message:
+                                    'The webhook now retries three times with a backoff. I opened a pull request with the change and a test for the failure case.',
+                            },
+                        },
+                    } as unknown as TaskListItemApi),
+                    {
+                        unread: false,
+                        pinned: true,
+                        pullRequestStates: { 'https://github.com/example-org/webapp/pull/421': 'merged' },
+                        spaceNames: { 'space-checkout': 'checkout' },
+                    }
+                )}
+            />
+        </HoverCardFrame>
+    ),
+}
+
+export const SpaceHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodaySpaceHoverCard
+                preview={spacePreview(
+                    {
+                        ...SPACES[2],
+                        repositories: ['example-org/web', 'example-org/billing', 'example-org/api', 'example-org/docs'],
+                    } as ChannelDTOApi,
+                    'checkout',
+                    { people: [GRACE, ADA], liveUuids: [GRACE.uuid] },
+                    '2026-09-28T18:28:00Z'
+                )}
+            />
+        </HoverCardFrame>
+    ),
 }

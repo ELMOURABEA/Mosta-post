@@ -8,6 +8,7 @@ import { spaceNewSessionUrl, todaySpacesLogic } from '~/layout/today/todaySpaces
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { TaskListItemApi } from '../generated/api.schemas'
 import { AutoArchiveSelection, spaceSceneLogic } from './spaceSceneLogic'
 
 describe('spaceSceneLogic', () => {
@@ -99,17 +100,30 @@ describe('spaceSceneLogic', () => {
         expect(logic.values.feedGroups).toEqual([])
     })
 
-    it('shows the new name after a rename and reloads the sidebar spaces', async () => {
-        const logic = spaceSceneLogic({ id: 'space-a' })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+    it.each([
+        ['a new name', '  checkout ', [{ name: 'checkout' }], 'checkout', null, null],
+        ['a blank name', '   ', [], 'space-a', '   ', 'Enter a name'],
+        ['a name over the limit', 'x'.repeat(129), [], 'space-a', 'x'.repeat(129), 'Use 128 characters or fewer'],
+        ['the saved name', 'space-a', [], 'space-a', null, null],
+    ])(
+        'renames once on Enter and blur for %s',
+        async (_, draft, expectedPatches, expectedName, expectedDraft, expectedError) => {
+            const logic = spaceSceneLogic({ id: 'space-a' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.updateSpace({ name: 'checkout' })
-        await expectLogic(logic).toDispatchActions(['updateSpace', 'spaceSaved', 'loadSpaces'])
+            logic.actions.setNameDraft(draft)
+            logic.actions.commitName()
+            logic.actions.commitName()
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.space?.name).toBe('checkout')
-        expect(logic.values.savingSpace).toBe(false)
-    })
+            expect(spacePatches).toEqual(expectedPatches)
+            expect(logic.values.space?.name).toBe(expectedName)
+            expect(logic.values.nameDraft).toBe(expectedDraft)
+            expect(logic.values.nameError).toBe(expectedError)
+            expect(logic.values.savingSpace).toBe(false)
+        }
+    )
 
     it.each([
         [404, true],
@@ -136,6 +150,56 @@ describe('spaceSceneLogic', () => {
 
         expect(logic.values.composerRepositoryConfig).toEqual(expected)
     })
+
+    it.each([
+        [
+            'one repository is used most',
+            [
+                ['a', 'acme/web'],
+                ['b', 'acme/api'],
+                ['c', 'acme/api'],
+            ],
+            { a: 'acme/web', b: null, c: null },
+        ],
+        [
+            'two repositories tie',
+            [
+                ['a', 'acme/web'],
+                ['b', 'acme/api'],
+            ],
+            { a: null, b: 'acme/api' },
+        ],
+        [
+            'a session has no repository',
+            [
+                ['a', null],
+                ['b', 'acme/api'],
+            ],
+            { a: null, b: null },
+        ],
+        [
+            'archived sessions use another repository',
+            [
+                ['a', 'acme/web'],
+                ['b', 'acme/api', true],
+                ['c', 'acme/api', true],
+            ],
+            { a: null, b: 'acme/api', c: 'acme/api' },
+        ],
+    ] as [string, [string, string | null, boolean?][], Record<string, string | null>][])(
+        'names a card repository only when it is not the usual one, when %s',
+        async (_, sessions, expected) => {
+            const logic = spaceSceneLogic({ id: 'space-a' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.loadSessionsSuccess(
+                sessions.map(([id, repository, archived = false]) => ({ id, repository, archived }) as TaskListItemApi)
+            )
+
+            expect(logic.values.feedRepositories).toEqual(expected)
+        }
+    )
 
     it('opens a started session and lists it in the feed', async () => {
         const logic = spaceSceneLogic({ id: 'space-a' })
