@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryWatchdogKillReader } from "../../../server/memory-watchdog";
 import { Logger } from "../../../utils/logger";
 import { createMemoryKillNoticeHook } from "./memory-kill-hook";
+import { VALIDATION_LOCK_PREFIX } from "./memory-validation";
 
 const GIB = 1024 ** 3;
 const STARTED_AT_SECONDS = 1_800_000_000;
@@ -95,32 +96,112 @@ describe("createMemoryKillNoticeHook", () => {
     },
   );
 
-  it("waits for a kill record written after Bash exits with a signal code", async () => {
-    await writeFile(path, "");
-    const reader = new MemoryWatchdogKillReader(path);
-    const read = reader.readNewKills.bind(reader);
-    let reads = 0;
-    reader.readNewKills = async () => {
-      const kills = await read();
-      reads += 1;
-      if (reads === 1) {
-        await appendFile(path, `${killRecord(8, STARTED_AT_SECONDS + 5)}\n`);
-      }
-      return kills;
-    };
+  it.each([137, 143, 144])(
+    "waits for a kill record written after Bash exits with code %s",
+    async (exitCode) => {
+      await writeFile(path, "");
+      const reader = new MemoryWatchdogKillReader(path);
+      const read = reader.readNewKills.bind(reader);
+      let reads = 0;
+      reader.readNewKills = async () => {
+        const kills = await read();
+        reads += 1;
+        if (reads === 1) {
+          await appendFile(path, `${killRecord(8, STARTED_AT_SECONDS + 5)}\n`);
+        }
+        return kills;
+      };
+      const hook = createMemoryKillNoticeHook(new Logger({ debug: false }), {
+        reader,
+        startedAtMs: STARTED_AT_SECONDS * 1000,
+        killRecordWaitMs: 60_000,
+        killRecordPollMs: 1,
+      });
+
+      const result = (await hook(
+        shellInput("PostToolUseFailure", "Bash", `Exit code ${exitCode}`),
+        "toolu_1",
+        { signal: new AbortController().signal },
+      )) as HookOutput;
+
+      expect(result.hookSpecificOutput?.additionalContext).toContain("(pid 8)");
+    },
+  );
+
+  it("retains a kill for each worker and the parent after another shell reads it", async () => {
+    await writeFile(path, `${killRecord(8, STARTED_AT_SECONDS + 5)}\n`);
     const hook = createMemoryKillNoticeHook(new Logger({ debug: false }), {
-      reader,
+      reader: new MemoryWatchdogKillReader(path),
       startedAtMs: STARTED_AT_SECONDS * 1000,
-      killRecordWaitMs: 60_000,
-      killRecordPollMs: 1,
+      killRecordWaitMs: 0,
     });
+    const opts = { signal: new AbortController().signal };
+    for (const agentId of ["worker-a", "worker-b", undefined]) {
+      const input = {
+        ...shellInput("PostToolUse", agentId ? "Bash" : "Agent"),
+        agent_id: agentId,
+      };
+      const output = (await hook(input, "toolu_1", opts)) as HookOutput;
+      expect(output.hookSpecificOutput?.additionalContext).toContain("(pid 8)");
+      expect(await hook(input, "toolu_2", opts)).toEqual({ continue: true });
+    }
+  });
 
-    const result = (await hook(
-      shellInput("PostToolUseFailure", "Bash", "Exit code 143"),
-      "toolu_1",
-      { signal: new AbortController().signal },
-    )) as HookOutput;
-
-    expect(result.hookSpecificOutput?.additionalContext).toContain("(pid 8)");
+  it("serializes validation and blocks unchanged retries after repeated memory failures", async () => {
+    await writeFile(path, "");
+    const hook = createMemoryKillNoticeHook(new Logger({ debug: false }), {
+      reader: new MemoryWatchdogKillReader(path),
+      startedAtMs: STARTED_AT_SECONDS * 1000,
+      killRecordWaitMs: 0,
+    });
+    const opts = { signal: new AbortController().signal };
+    const pre = {
+      ...shellInput("PostToolUse"),
+      hook_event_name: "PreToolUse",
+    } as HookInput;
+    expect(await hook(pre, "toolu_1", opts)).toMatchObject({
+      hookSpecificOutput: {
+        updatedInput: { command: `${VALIDATION_LOCK_PREFIX}pnpm test` },
+      },
+    });
+    for (const pid of [8, 9]) {
+      await appendFile(path, `${killRecord(pid, STARTED_AT_SECONDS + pid)}\n`);
+      await hook(
+        shellInput("PostToolUseFailure", "Bash", "Exit code 144"),
+        `toolu_${pid}`,
+        opts,
+      );
+      if (pid === 8) {
+        await hook(
+          {
+            ...shellInput("PostToolUseFailure", "Bash", "Exit code 144"),
+            agent_id: "another-worker",
+          },
+          "toolu_worker",
+          opts,
+        );
+        expect(await hook(pre, "toolu_retry", opts)).toMatchObject({
+          hookSpecificOutput: {
+            updatedInput: { command: `${VALIDATION_LOCK_PREFIX}pnpm test` },
+          },
+        });
+      }
+    }
+    expect(await hook(pre, "toolu_3", opts)).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "deny" },
+    });
+    expect(
+      await hook(
+        { ...pre, tool_input: { command: "pnpm test tests/small.test.ts" } },
+        "toolu_4",
+        opts,
+      ),
+    ).toMatchObject({
+      hookSpecificOutput: {
+        updatedInput: {
+          command: `${VALIDATION_LOCK_PREFIX}pnpm test tests/small.test.ts`,
+        },
+      },
+    });
   });
 });
