@@ -27,8 +27,13 @@ from products.alerts.backend.comparison.contracts import (
     SourceCorrespondence,
     SourceCoverage,
     SourceVerdict,
+    SuppressionReason,
 )
 from products.alerts.backend.facade.lifecycle import AlertPolicy
+
+# A source that excludes an alert for one of these would never have checked it, and neither would
+# the platform. A mute is not one: the platform evaluates through a mute on purpose.
+_EXCLUDED_BY_BOTH = frozenset({SuppressionReason.DISABLED, SuppressionReason.BROKEN})
 
 
 class DivergenceClass(StrEnum):
@@ -96,6 +101,14 @@ def compare(check: PlatformCheck, verdict: SourceVerdict, *, correspondence: Sou
     if verdict.coverage is SourceCoverage.UNKNOWN:
         return result(reason=verdict.detail)
 
+    if verdict.coverage is SourceCoverage.SUPPRESSED and verdict.suppressed_by in _EXCLUDED_BY_BOTH:
+        # Asked before the states are compared, because both stacks exclude a disabled or broken
+        # alert outright. The platform checking one at all is the drift, whatever state each holds,
+        # and a disabled alert rests in the state a quiet check also records.
+        return result(
+            DivergenceClass.REAL, f"platform checked an alert its source suppressed ({verdict.suppressed_by})"
+        )
+
     if verdict.state == check.state:
         return result()
 
@@ -107,8 +120,7 @@ def compare(check: PlatformCheck, verdict: SourceVerdict, *, correspondence: Sou
         return result(DivergenceClass.TIMING, "source has not reached this check")
 
     if verdict.coverage is SourceCoverage.SUPPRESSED:
-        # Both stacks exclude a disabled or broken alert, so the platform checking one that its
-        # source would not have means the two configurations have drifted apart.
+        # Only a mute reaches here, and only from a source that declared no divergence for one.
         return result(
             DivergenceClass.REAL, f"platform checked an alert its source suppressed ({verdict.suppressed_by})"
         )

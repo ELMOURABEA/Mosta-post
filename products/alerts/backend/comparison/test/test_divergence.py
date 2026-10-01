@@ -104,6 +104,17 @@ class TestDivergenceClassification(TestCase):
                 DivergenceClass.REAL,
             ),
             (
+                "the platform checked an alert the source had disabled, and both read not firing",
+                _check("not_firing"),
+                SourceVerdict(
+                    coverage=SourceCoverage.SUPPRESSED,
+                    state="not_firing",
+                    suppressed_by=SuppressionReason.DISABLED,
+                ),
+                Agreement.DIVERGED,
+                DivergenceClass.REAL,
+            ),
+            (
                 "the source cannot say",
                 _check("firing"),
                 SourceVerdict(coverage=SourceCoverage.UNKNOWN, state=None, detail="no such alert"),
