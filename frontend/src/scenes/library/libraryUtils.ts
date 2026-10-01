@@ -4,7 +4,7 @@ import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/p
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 // These file system types are working pages rather than saved objects, so they belong to Tools.
-export const TOOL_FILE_SYSTEM_TYPES = new Set(['endpoints', 'live_debugger', 'notebook', 'task'])
+export const TOOL_FILE_SYSTEM_TYPES = new Set(['endpoints', 'notebook', 'task'])
 
 // The objects people reach for most come first. Any other type follows in name order.
 const LIBRARY_TYPE_ORDER = ['insight', 'dashboard', 'feature_flag', 'experiment', 'survey', 'cohort', 'action']

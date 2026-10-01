@@ -261,7 +261,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Real-time events from your app or website.',
         iconType: 'live',
     },
-    [Scene.LiveDebugger]: { projectBased: true, name: 'Live debugger' },
     [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA', layout: 'plain' },
     [Scene.Login]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
@@ -674,7 +673,6 @@ export const redirects: Record<
     '/instance/query_performance': urls.experimentsStaffTools(),
     '/me/settings': urls.settings('user'),
     '/new': urls.newTab(),
-    '/live-debugger': urls.liveDebugger(),
     // Only billing, confirm-creation and create-project have an `/organization*` scene. Every other
     // path here is guessed or bookmarked, matched no route, and rendered the 404 screen.
     '/organization': urls.settings('organization'),
@@ -904,7 +902,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
-    [urls.liveDebugger()]: [Scene.LiveDebugger, 'liveDebugger'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],

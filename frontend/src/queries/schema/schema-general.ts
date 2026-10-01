@@ -5430,7 +5430,6 @@ export type FileSystemIconType =
     | 'data_warehouse'
     | 'task'
     | 'link'
-    | 'live_debugger'
     | 'logs'
     | 'tracing'
     | 'metrics'
@@ -9064,7 +9063,6 @@ export enum ProductKey {
     INGESTION_WARNINGS = 'ingestion_warnings',
     INTEGRATIONS = 'integrations',
     LINKS = 'links',
-    LIVE_DEBUGGER = 'live_debugger',
     LLM_CLUSTERS = 'llm_clusters',
     LLM_DATASETS = 'llm_datasets',
     LLM_EVALUATIONS = 'llm_evaluations',

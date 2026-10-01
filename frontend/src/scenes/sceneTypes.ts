@@ -106,7 +106,6 @@ export enum Scene {
     Library = 'Library',
     Link = 'Link',
     Links = 'Links',
-    LiveDebugger = 'LiveDebugger',
     Activity = 'Activity',
     LiveEvents = 'LiveEvents',
     Login = 'Login',
