@@ -105,8 +105,10 @@ class SuppressionReason(StrEnum):
 class SourceVerdict:
     """What a source's own stack held for the check that corresponds to one platform check.
 
-    `state` is an `AlertState` value, which both stacks share, so a comparison never has to
-    translate one product's state vocabulary into another's.
+    `state` is an `AlertState` value as `facade.lifecycle` spells it, which is the vocabulary the
+    platform records. A source whose own tables spell its states differently translates here, at
+    its own edge: insight stores the `posthog.schema_enums` spelling ("Firing", "Not firing"), and
+    returning that raw would read as a disagreement on every check.
     """
 
     coverage: SourceCoverage
@@ -128,16 +130,19 @@ class IntentionalDivergence:
     working recognizer leaves its differences classified as real, which is the safe direction.
 
     `policy_flag` names the `AlertPolicy` field that causes it, and is what the ratchet matches
-    against, so a source cannot configure a deliberate difference and leave it undeclared.
+    against, so a source cannot configure a deliberate difference and leave it undeclared. Not
+    every deliberate difference comes from a flag: insight collapses four failure kinds into two
+    skip reasons, which no flag describes, so a declaration may leave it None and still be asked.
 
     The recognizer belongs to the source because the same flag shows up differently per source.
     Production logs stops checking a muted alert and its schedule stalls; insight keeps checking
     one and its schedule does not.
     """
 
-    policy_flag: str
+    cause: str
     recognizes: Callable[[PlatformCheck, SourceVerdict], bool]
     why: str
+    policy_flag: str | None = None
 
 
 class SourceCorrespondence(Protocol):

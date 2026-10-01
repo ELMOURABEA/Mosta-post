@@ -62,7 +62,7 @@ class TestLogsCorrespondence(BaseTest):
         event.refresh_from_db()
         return event
 
-    def _check(self, alert: LogsAlertConfiguration) -> PlatformCheck:
+    def _check(self, alert: LogsAlertConfiguration, *, at: datetime = CHECKED_AT) -> PlatformCheck:
         return PlatformCheck(
             team_id=self.team.id,
             configuration_id=uuid4(),
@@ -75,7 +75,7 @@ class TestLogsCorrespondence(BaseTest):
             kind="check",
             muted_notification="none",
             error_message="",
-            occurred_at=CHECKED_AT,
+            occurred_at=at,
         )
 
     def _verdict(self, alert: LogsAlertConfiguration):
@@ -175,15 +175,30 @@ class TestLogsCorrespondence(BaseTest):
     def test_one_flapping_alert_does_not_cost_the_batch_its_answers(self) -> None:
         flapping = self._alert()
         quiet = self._alert()
+        window_start = CHECKED_AT - timedelta(hours=1)
         for minute in range(3):
-            self._event(flapping, at=CHECKED_AT + timedelta(minutes=minute + 1))
-        checks = [self._check(flapping), self._check(quiet)]
+            self._event(flapping, at=window_start + timedelta(minutes=minute + 1))
+        # Two instants, so the compared window has room to hold the transitions between them.
+        checks = [self._check(flapping, at=window_start), self._check(flapping)]
+        checks += [self._check(quiet, at=window_start), self._check(quiet)]
 
         with patch("products.logs.backend.alert_comparison.MAX_EVENTS_PER_WINDOW", 2):
             verdicts = LogsCorrespondence().verdicts_for(checks)
 
         assert verdicts[checks[0].ref].coverage is SourceCoverage.UNKNOWN
-        assert verdicts[checks[1].ref].coverage is SourceCoverage.EVALUATED
+        assert verdicts[checks[2].ref].coverage is SourceCoverage.EVALUATED
+
+    def test_a_transition_after_the_window_still_dates_the_last_check(self) -> None:
+        # The read is bounded by the window, so this row sits outside it and is fetched on purpose.
+        alert = self._alert(state=LogsAlertConfiguration.State.FIRING)
+        self._event(
+            alert,
+            at=CHECKED_AT + timedelta(hours=2),
+            state_before=LogsAlertConfiguration.State.NOT_FIRING,
+            state_after=LogsAlertConfiguration.State.FIRING,
+        )
+
+        assert self._verdict(alert).state == LogsAlertConfiguration.State.NOT_FIRING
 
     def test_the_window_bound_round_trips_through_the_key_the_source_mints(self) -> None:
         # A key the minter no longer produces would silently cost every check its window bound.

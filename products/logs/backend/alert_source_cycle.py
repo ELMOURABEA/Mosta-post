@@ -155,7 +155,7 @@ def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now
     )
 
 
-def is_in_quiet_hours(schedule_restriction: dict | None, now: datetime, tz_name: str, *, alert_id: str) -> bool:
+def is_in_quiet_hours(schedule_restriction: dict | None, now: datetime, tz_name: str, *, alert_id: UUID) -> bool:
     """True when the alert's schedule restriction mutes an announcement at `now`.
 
     The check still runs, so an incident wholly inside the window is still recorded.
@@ -167,7 +167,9 @@ def is_in_quiet_hours(schedule_restriction: dict | None, now: datetime, tz_name:
     except Exception as error:
         # A restriction we cannot parse must not decide the alert either way, so the check
         # proceeds and the production stack keeps ownership of the broken configuration.
-        logger.exception("Unparseable schedule restriction; evaluating anyway", check_id=alert_id, error=str(error))
+        logger.exception(
+            "Unparseable schedule restriction; evaluating anyway", check_id=str(alert_id), error=str(error)
+        )
         return False
 
 
@@ -487,7 +489,7 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
                 )
             )
             continue
-        if is_in_quiet_hours(check.schedule_restriction, now, tz_name, alert_id=str(check.id)):
+        if is_in_quiet_hours(check.schedule_restriction, now, tz_name, alert_id=check.id):
             muted_ids.add(check.id)
         evaluable.append(check)
     return _Triage(decided=decided, evaluable=evaluable, muted_ids=frozenset(muted_ids))

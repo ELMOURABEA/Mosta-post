@@ -64,10 +64,13 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
     def _record(self, configuration: PlatformAlertConfiguration, *, evaluation_key: str, **overrides) -> None:
         insert_events(self.team.id, [self._row(configuration, evaluation_key=evaluation_key, **overrides)])
 
-    def _stored(self) -> int:
+    def _stored(self, configuration: PlatformAlertConfiguration) -> int:
+        # Scoped to one configuration: ClickHouse is not rolled back, so a count over the team
+        # sees rows other tests and earlier runs left.
         return sync_execute(
-            f"SELECT count() FROM {PLATFORM_ALERT_EVENTS_TABLE} WHERE team_id = %(team_id)s",
-            {"team_id": self.team.id},
+            f"SELECT count() FROM {PLATFORM_ALERT_EVENTS_TABLE} "
+            "WHERE team_id = %(team_id)s AND configuration_id = %(configuration_id)s",
+            {"team_id": self.team.id, "configuration_id": configuration.id},
             team_id=self.team.id,
         )[0][0]
 
@@ -100,7 +103,7 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
             self.team.id,
             [retried, self._row(configuration, evaluation_key=_key("2026-09-30T12:04:00+00:00"))],
         )
-        assert self._stored() == 3
+        assert self._stored(configuration) == 3
 
         checks = self._read()
 

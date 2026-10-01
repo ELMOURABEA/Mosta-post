@@ -19,9 +19,11 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Count
+from django.db.models import QuerySet
 
 import structlog
+
+from posthog.models import Team
 
 from products.alerts.backend.comparison.contracts import (
     CheckRef,
@@ -52,10 +54,7 @@ MAX_EVENTS_PER_WINDOW = 5000
 MAX_EVENTS_PER_BATCH = 100_000
 
 _TOGGLE_KINDS = frozenset({LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE})
-
-
-class ComparisonBatchTooLarge(Exception):
-    """The batch spans more logs transitions than one read will hold."""
+_CHAIN_FIELDS = ("id", "alert_id", "kind", "created_at", "state_before")
 
 
 def _mute_gates_notification_only(check: PlatformCheck, verdict: SourceVerdict) -> bool:
@@ -76,6 +75,7 @@ def _mute_gates_notification_only(check: PlatformCheck, verdict: SourceVerdict) 
 
 LOGS_INTENTIONAL_DIVERGENCES: tuple[IntentionalDivergence, ...] = (
     IntentionalDivergence(
+        cause="mute_gates_notification_only",
         policy_flag="mute_gates_notification_only",
         recognizes=_mute_gates_notification_only,
         why=(
@@ -108,78 +108,87 @@ class LogsCorrespondence(SourceCorrespondence):
 
         configurations = {
             (configuration.team_id, configuration.id): configuration
-            for configuration in LogsAlertConfiguration.objects.select_related("team").filter(
+            for configuration in LogsAlertConfiguration.objects.filter(
                 id__in=[alert_id for _, alert_id in by_alert],
                 team_id__in={team_id for team_id, _ in by_alert},
-            )
+            ).only("id", "team_id", "state", "enabled", "schedule_restriction", "last_checked_at")
         }
-        events = self._events_since(
-            set(configurations),
-            since=min(check.occurred_at for group in by_alert.values() for check in group),
+        # One narrow row per team, rather than the Team row `select_related` attaches to every
+        # configuration to reach one field.
+        timezones = dict(
+            Team.objects.filter(id__in={team_id for team_id, _ in configurations}).values_list("id", "timezone")
         )
+        instants = [check.occurred_at for group in by_alert.values() for check in group]
+        events = self._chains(set(configurations), since=min(instants), until=max(instants))
 
         for key, group in by_alert.items():
             configuration = configurations.get(key)
-            if configuration is None:
-                for check in group:
-                    verdicts[check.ref] = _unknown("no logs alert with that id in this project")
-                continue
-            _, alert_id = key
-            chain = events.get(alert_id)
-            if chain is None:
-                for check in group:
-                    verdicts[check.ref] = _unknown("too many logs transitions to date this check against")
-                continue
+            chain = events.get(key[1])
             for check in group:
-                verdicts[check.ref] = _verdict_at(configuration, chain, check)
+                if configuration is None:
+                    verdicts[check.ref] = _unknown("no logs alert with that id in this project")
+                elif chain is None:
+                    verdicts[check.ref] = _unknown("too many logs transitions to date this check against")
+                else:
+                    verdicts[check.ref] = _verdict_at(configuration, chain, check, tz_name=timezones[key[0]])
 
         return verdicts
 
-    def _events_since(self, keys: set[tuple[int, UUID]], *, since: datetime) -> dict[UUID, list[LogsAlertEvent]]:
+    def _chains(
+        self, keys: set[tuple[int, UUID]], *, since: datetime, until: datetime
+    ) -> dict[UUID, list[LogsAlertEvent]]:
         """Every transition each alert made after `since`, oldest first, keyed by alert.
 
-        An alert whose chain hit the per-alert bound is left out, so a caller cannot read a
+        Bounded by the window being compared rather than by wall-clock time, plus the one later
+        transition that dates the state a check at the end of the window was in. Reading to the
+        present instead would spend the per-alert bound on transitions no check asks about.
+
+        An alert whose chain could not be read whole is left out, so a caller cannot read a
         truncated chain as a complete one.
         """
         alert_ids = [alert_id for _, alert_id in keys]
-        transitions = LogsAlertEvent.objects.filter(
-            alert_id__in=alert_ids,
-            # Restated, so a reader never meets a query on this table without a team term.
-            alert__team_id__in={team_id for team_id, _ in keys},
-            created_at__gt=since,
-        )
-        overflowing = set(
-            transitions.values("alert_id")
-            .annotate(transitions=Count("id"))
-            .filter(transitions__gt=MAX_EVENTS_PER_WINDOW)
-            .values_list("alert_id", flat=True)
-        )
-        if overflowing:
-            logger.warning(
-                "Logs alert comparison read more transitions than it will hold",
-                since=since.isoformat(),
-                alerts=len(overflowing),
-            )
-
-        chains: dict[UUID, list[LogsAlertEvent]] = {
-            alert_id: [] for alert_id in alert_ids if alert_id not in overflowing
-        }
-        # Matches `logs_alert_event_alert_ts_idx`; a global sort on `created_at` is not a prefix
-        # of it and sorts the whole batch instead.
-        rows = (
-            transitions.exclude(alert_id__in=overflowing)
-            .only("id", "alert_id", "kind", "created_at", "state_before")
+        team_ids = {team_id for team_id, _ in keys}
+        in_window = list(
+            self._events(alert_ids, team_ids)
+            .filter(created_at__gt=since, created_at__lte=until)
             .order_by("alert_id", "-created_at")[: MAX_EVENTS_PER_BATCH + 1]
         )
-        held = 0
-        for row in rows:
-            held += 1
-            if held > MAX_EVENTS_PER_BATCH:
-                raise ComparisonBatchTooLarge(f"over {MAX_EVENTS_PER_BATCH} logs transitions since {since.isoformat()}")
+
+        held = in_window[:MAX_EVENTS_PER_BATCH]
+        chains: dict[UUID, list[LogsAlertEvent]] = {alert_id: [] for alert_id in alert_ids}
+        for row in held:
             chains[row.alert_id].append(row)
-        for chain in chains.values():
+
+        incomplete = {alert_id for alert_id, chain in chains.items() if len(chain) > MAX_EVENTS_PER_WINDOW}
+        if len(in_window) > MAX_EVENTS_PER_BATCH:
+            # Ordered by alert, so the batch bound cut one alert short and left the rest unread.
+            incomplete |= set(alert_ids) - {row.alert_id for row in held}
+            incomplete.add(held[-1].alert_id)
+        if incomplete:
+            logger.warning(
+                "Logs alert comparison could not read every transition it needs",
+                since=since.isoformat(),
+                alerts=len(incomplete),
+            )
+
+        complete = {alert_id: chain for alert_id, chain in chains.items() if alert_id not in incomplete}
+        for chain in complete.values():
             chain.reverse()
-        return chains
+        for row in (
+            self._events(list(complete), team_ids)
+            .filter(created_at__gt=until)
+            .order_by("alert_id", "created_at")
+            .distinct("alert_id")
+        ):
+            complete[row.alert_id].append(row)
+        return complete
+
+    def _events(self, alert_ids: list[UUID], team_ids: set[int]) -> QuerySet[LogsAlertEvent]:
+        return LogsAlertEvent.objects.filter(
+            alert_id__in=alert_ids,
+            # Restated, so a reader never meets a query on this table without a team term.
+            alert__team_id__in=team_ids,
+        ).only(*_CHAIN_FIELDS)
 
 
 def _unknown(detail: str) -> SourceVerdict:
@@ -190,6 +199,8 @@ def _verdict_at(
     configuration: LogsAlertConfiguration,
     chain: Sequence[LogsAlertEvent],
     check: PlatformCheck,
+    *,
+    tz_name: str,
 ) -> SourceVerdict:
     at = check.occurred_at
     after = [event for event in chain if event.created_at > at]
@@ -221,11 +232,9 @@ def _verdict_at(
         # No history of `snooze_until` is kept, so the state overstates the snooze by up to the
         # one check interval production logs takes to write the transition out of it.
         return verdict(SourceCoverage.SUPPRESSED, suppressed_by=SuppressionReason.MUTED)
-    # Through the production helper rather than its parts, because an unparseable restriction must
-    # not decide the alert, and that guard is inside it.
-    if is_in_quiet_hours(
-        configuration.schedule_restriction, at, configuration.team.timezone, alert_id=str(configuration.id)
-    ):
+    # The platform's parse, not production's, which reschedules past a blocked window rather than
+    # testing one. A disagreement between the two parses is invisible here.
+    if is_in_quiet_hours(configuration.schedule_restriction, at, tz_name, alert_id=configuration.id):
         return verdict(SourceCoverage.SUPPRESSED, suppressed_by=SuppressionReason.MUTED)
 
     # Production logs must have reached this data before it can have disagreed about it.

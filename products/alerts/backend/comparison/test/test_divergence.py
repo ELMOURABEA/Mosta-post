@@ -146,5 +146,8 @@ class TestDivergenceClassification(TestCase):
     @parameterized.expand([(c.source.value, c) for c in CORRESPONDENCES])
     def test_every_policy_divergence_is_declared(self, _name: str, correspondence) -> None:
         declared = {divergence.policy_flag for divergence in correspondence.intentional_divergences}
+        configured = diverging_policy_flags(correspondence.production_policy, correspondence.platform_policy)
 
-        assert diverging_policy_flags(correspondence.production_policy, correspondence.platform_policy) == declared
+        # Coverage rather than equality: a source may also declare a deliberate difference no flag
+        # describes, and must not be forced to invent one to hang the declaration on.
+        assert configured <= declared

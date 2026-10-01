@@ -114,15 +114,9 @@ def compare(check: PlatformCheck, verdict: SourceVerdict, *, correspondence: Sou
 
     declared = next((d for d in correspondence.intentional_divergences if d.recognizes(check, verdict)), None)
     if declared is not None:
-        return result(DivergenceClass.INTENTIONAL, declared.policy_flag)
+        return result(DivergenceClass.INTENTIONAL, declared.cause)
 
     if verdict.coverage is SourceCoverage.BEHIND:
         return result(DivergenceClass.TIMING, "source has not reached this check")
-
-    if verdict.coverage is SourceCoverage.SUPPRESSED:
-        # Only a mute reaches here, and only from a source that declared no divergence for one.
-        return result(
-            DivergenceClass.REAL, f"platform checked an alert its source suppressed ({verdict.suppressed_by})"
-        )
 
     return result(DivergenceClass.REAL)

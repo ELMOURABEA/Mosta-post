@@ -29,8 +29,7 @@ from products.alerts.backend.models.platform_alert_events_sql import PLATFORM_AL
 MAX_CHECKS_PER_WINDOW = 200_000
 
 # Derived from the contract, so a field added there cannot be left out of the SELECT.
-_SUPPLIED = ("team_id", "legacy_configuration_id")
-_COLUMNS = tuple(f.name for f in fields(PlatformCheck) if f.name not in _SUPPLIED)
+_COLUMNS = tuple(f.name for f in fields(PlatformCheck) if f.name not in ("team_id", "legacy_configuration_id"))
 
 # `LIMIT 1 BY` deduplicates on the pair the writer names, because the insert token only covers a
 # retry of the same batch and the engine remembers a bounded window of tokens. The ORDER BY is the
