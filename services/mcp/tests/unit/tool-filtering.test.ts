@@ -1009,7 +1009,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'llm-analytics-datasets',
                 'tracing',
                 'visual-review',
-                'user-interviews',
                 'customer-analytics-csp',
                 'customer-analytics-feature-requests',
                 'customer-analytics-customer-tasks',
@@ -1046,7 +1045,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'autoresearch',
             ])
         )
-        expect(flags).toHaveLength(38)
+        expect(flags).toHaveLength(37)
     })
 
     it('every loops tool is gated on the loops flag', () => {

@@ -287,9 +287,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
     '/tracing/retention-rules/:id': ['TracingRetentionDetail', 'tracingRetentionDetail'],
-    '/user_research': ['UserInterviews', 'userInterviews'],
-    '/user_research/:topicId/response/:responseId': ['UserInterviewResponse', 'userInterviewResponse'],
-    '/user_research/:id': ['UserInterview', 'userInterview'],
     '/visual_review': ['VisualReviewIndex', 'visualReviewIndex'],
     '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
     '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
@@ -499,7 +496,6 @@ export const productRedirects: Record<
         combineUrl(urls.skills(), searchParams, hashParams).url,
     '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
         combineUrl(urls.skill(params.name), searchParams, hashParams).url,
-    '/user_interviews': '/user_research',
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1138,15 +1134,6 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Tracing',
         iconType: 'tracing',
     },
-    UserInterviews: {
-        name: 'User research',
-        projectBased: true,
-        activityScope: 'UserInterview',
-        description: 'Run AI-powered voice research campaigns to gather user insights at scale.',
-        iconType: 'user_interview',
-    },
-    UserInterview: { name: 'Interview topic', projectBased: true, activityScope: 'UserInterview' },
-    UserInterviewResponse: { name: 'Interview response', projectBased: true, activityScope: 'UserInterview' },
     VisualReviewIndex: {
         name: 'Visual review',
         description:
@@ -1754,10 +1741,6 @@ export const productUrls = {
         }).url,
     tracingRetentionNew: (): string => '/tracing/retention-rules/new',
     tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,
-    userInterviews: (): string => '/user_research',
-    userInterview: (id: string): string => `/user_research/${id}`,
-    userInterviewResponse: (topicId: string, responseId: string): string =>
-        `/user_research/${topicId}/response/${responseId}`,
     visualReviewRuns: (): string => '/visual_review',
     visualReviewSettings: (): string => '/visual_review/settings',
     visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
@@ -1906,14 +1889,6 @@ export const fileSystemTypes = {
         iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
         filterKey: 'task',
         flag: FEATURE_FLAGS.TASKS,
-    },
-    user_interview: {
-        name: 'User research',
-        iconType: 'user_interview',
-        href: (ref: string) => urls.userInterview(ref),
-        iconColor: ['var(--color-product-user-interviews-light)', 'var(--color-product-user-interviews-dark)'],
-        filterKey: 'user_interview',
-        flag: FEATURE_FLAGS.USER_INTERVIEWS,
     },
     workflows: {
         name: 'Workflow',
@@ -2159,7 +2134,6 @@ export type ProductTreePath =
     | 'Tasks'
     | 'Toolbar'
     | 'Tracing'
-    | 'User research'
     | 'Visual review'
     | 'Web analytics'
     | 'Web scripts'
@@ -2916,22 +2890,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.TRACING,
         sceneKey: 'Tracing',
         sceneKeys: ['Tracing', 'TracingOperation', 'TracingRetentionNew', 'TracingRetentionDetail'],
-    },
-    {
-        path: 'User research',
-        intents: [ProductKey.USER_INTERVIEWS],
-        category: ProductItemCategory.UNRELEASED,
-        href: urls.userInterviews(),
-        type: 'user_interview',
-        flag: FEATURE_FLAGS.USER_INTERVIEWS,
-        tags: ['alpha'],
-        iconType: 'user_interview',
-        iconColor: [
-            'var(--color-product-user-interviews-light)',
-            'var(--color-product-user-interviews-dark)',
-        ] as FileSystemIconColor,
-        sceneKey: 'UserInterviews',
-        sceneKeys: ['UserInterviews', 'UserInterview', 'UserInterviewResponse'],
     },
     {
         path: 'Visual review',

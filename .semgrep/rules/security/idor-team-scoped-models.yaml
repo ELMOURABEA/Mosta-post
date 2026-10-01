@@ -248,7 +248,6 @@ rules:
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
-                              |IntervieweeContext
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
@@ -426,8 +425,6 @@ rules:
                               |TracesRetentionRule
                               |TracingView
                               |UploadedMedia
-                              |UserInterview
-                              |UserInterviewTopic
                               |UserRepoPreference
                               |VisionAlertConfiguration
                               |VisionAlertMatch
@@ -687,7 +684,6 @@ rules:
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
-                        |IntervieweeContext
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
@@ -857,8 +853,6 @@ rules:
                         |TracesRetentionRule
                         |TracingView
                         |UploadedMedia
-                        |UserInterview
-                        |UserInterviewTopic
                         |UserRepoPreference
                         |VisionAlertConfiguration
                         |VisionAlertMatch
