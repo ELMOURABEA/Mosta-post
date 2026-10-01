@@ -1,12 +1,13 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.comparison.platform_history import read_platform_checks
+from products.alerts.backend.comparison.platform_history import UnregisteredSource, read_platform_checks
 from products.alerts.backend.facade.contracts import SourceKind
 from products.alerts.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts.backend.models import PlatformAlertConfiguration
@@ -105,6 +106,14 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert len(checks) == 2
         assert len({check.evaluation_key for check in checks}) == 2
+
+    def test_a_source_the_configuration_model_does_not_accept_is_an_error(self) -> None:
+        # Without this an unregistered source reads as one that made no checks, and whoever runs
+        # the first insight comparison concludes the parallel run is quiet.
+        since, until = WINDOW
+
+        with pytest.raises(UnregisteredSource):
+            read_platform_checks(team_id=self.team.id, source=SourceKind.INSIGHT, since=since, until=until)
 
     def test_another_source_is_not_in_a_logs_comparison(self) -> None:
         self._record(

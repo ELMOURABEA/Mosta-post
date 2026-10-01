@@ -62,11 +62,7 @@ from products.alerts.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
-from products.alerts.backend.facade.scheduling import (
-    BlockedWindow,
-    is_utc_datetime_blocked,
-    parse_blocked_windows_tuples,
-)
+from products.alerts.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
     BucketedCount,
@@ -140,8 +136,8 @@ def window_end_of(evaluation_key: str) -> datetime | None:
     The inverse lives next to the minter so a change to one breaks the round trip rather than
     silently returning None to a reader in another module.
     """
-    marker, _, tail = evaluation_key.rpartition(_WINDOW_MARKER)
-    if not marker and not evaluation_key.startswith(_WINDOW_MARKER):
+    _, marker, tail = evaluation_key.rpartition(_WINDOW_MARKER)
+    if not marker:
         return None
     try:
         return datetime.fromisoformat(tail)
@@ -159,25 +155,15 @@ def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now
     )
 
 
-def is_in_quiet_hours(
-    schedule_restriction: dict | None,
-    now: datetime,
-    tz_name: str,
-    *,
-    alert_id: str,
-    windows: list[BlockedWindow] | None = None,
-) -> bool:
+def is_in_quiet_hours(schedule_restriction: dict | None, now: datetime, tz_name: str, *, alert_id: str) -> bool:
     """True when the alert's schedule restriction mutes an announcement at `now`.
 
     The check still runs, so an incident wholly inside the window is still recorded.
-
-    `windows` takes an already parsed restriction, for a caller asking about many instants
-    against one configuration.
     """
     if not schedule_restriction:
         return False
     try:
-        return is_utc_datetime_blocked(now, tz_name, windows or parse_blocked_windows_tuples(schedule_restriction))
+        return is_utc_datetime_blocked(now, tz_name, parse_blocked_windows_tuples(schedule_restriction))
     except Exception as error:
         # A restriction we cannot parse must not decide the alert either way, so the check
         # proceeds and the production stack keeps ownership of the broken configuration.

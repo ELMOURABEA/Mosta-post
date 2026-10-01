@@ -33,8 +33,12 @@ from products.alerts.backend.comparison.contracts import (
     SuppressionReason,
 )
 from products.alerts.backend.facade.contracts import SourceKind
-from products.alerts.backend.facade.lifecycle import LOGS_ALERT_POLICY, PLATFORM_LOGS_ALERT_POLICY, AlertState
-from products.alerts.backend.facade.scheduling import BlockedWindow, parse_blocked_windows_tuples
+from products.alerts.backend.facade.lifecycle import (
+    LOGS_ALERT_POLICY,
+    PLATFORM_LOGS_ALERT_POLICY,
+    AlertState,
+    NotificationAction,
+)
 from products.logs.backend.alert_source_cycle import is_in_quiet_hours, window_end_of
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
@@ -64,7 +68,10 @@ def _mute_gates_notification_only(check: PlatformCheck, verdict: SourceVerdict) 
     """
     if verdict.coverage is SourceCoverage.SUPPRESSED:
         return verdict.suppressed_by is SuppressionReason.MUTED
-    return verdict.coverage is SourceCoverage.BEHIND and check.muted_notification not in ("", "none")
+    return verdict.coverage is SourceCoverage.BEHIND and check.muted_notification not in (
+        "",
+        NotificationAction.NONE.value,
+    )
 
 
 LOGS_INTENTIONAL_DIVERGENCES: tuple[IntentionalDivergence, ...] = (
@@ -123,9 +130,8 @@ class LogsCorrespondence(SourceCorrespondence):
                 for check in group:
                     verdicts[check.ref] = _unknown("too many logs transitions to date this check against")
                 continue
-            windows = parse_blocked_windows_tuples(configuration.schedule_restriction)
             for check in group:
-                verdicts[check.ref] = _verdict_at(configuration, chain, check, windows=windows)
+                verdicts[check.ref] = _verdict_at(configuration, chain, check)
 
         return verdicts
 
@@ -184,8 +190,6 @@ def _verdict_at(
     configuration: LogsAlertConfiguration,
     chain: Sequence[LogsAlertEvent],
     check: PlatformCheck,
-    *,
-    windows: list[BlockedWindow] | None,
 ) -> SourceVerdict:
     at = check.occurred_at
     after = [event for event in chain if event.created_at > at]
@@ -217,12 +221,10 @@ def _verdict_at(
         # No history of `snooze_until` is kept, so the state overstates the snooze by up to the
         # one check interval production logs takes to write the transition out of it.
         return verdict(SourceCoverage.SUPPRESSED, suppressed_by=SuppressionReason.MUTED)
+    # Through the production helper rather than its parts, because an unparseable restriction must
+    # not decide the alert, and that guard is inside it.
     if is_in_quiet_hours(
-        configuration.schedule_restriction,
-        at,
-        configuration.team.timezone,
-        alert_id=str(configuration.id),
-        windows=windows,
+        configuration.schedule_restriction, at, configuration.team.timezone, alert_id=str(configuration.id)
     ):
         return verdict(SourceCoverage.SUPPRESSED, suppressed_by=SuppressionReason.MUTED)
 
