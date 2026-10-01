@@ -1,7 +1,10 @@
 import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { HookInput } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  PostToolUseFailureHookInput,
+  PostToolUseHookInput,
+} from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryWatchdogKillReader } from "../../../server/memory-watchdog";
 import { Logger } from "../../../utils/logger";
@@ -28,17 +31,18 @@ function shellInput(
   hookEventName: "PostToolUse" | "PostToolUseFailure",
   toolName = "Bash",
   error = "Exit code 137",
-): HookInput {
-  return {
+): PostToolUseHookInput | PostToolUseFailureHookInput {
+  const input = {
     session_id: "s",
     transcript_path: "/tmp/t",
     cwd: "/tmp",
-    hook_event_name: hookEventName,
     tool_name: toolName,
     tool_input: { command: "pnpm test" },
     tool_use_id: "toolu_1",
-    ...(hookEventName === "PostToolUse" ? { tool_response: "" } : { error }),
-  } as unknown as HookInput;
+  };
+  return hookEventName === "PostToolUse"
+    ? { ...input, hook_event_name: hookEventName, tool_response: "" }
+    : { ...input, hook_event_name: hookEventName, error };
 }
 
 type HookOutput = {
@@ -157,8 +161,8 @@ describe("createMemoryKillNoticeHook", () => {
     const opts = { signal: new AbortController().signal };
     const pre = {
       ...shellInput("PostToolUse"),
-      hook_event_name: "PreToolUse",
-    } as HookInput;
+      hook_event_name: "PreToolUse" as const,
+    };
     expect(await hook(pre, "toolu_1", opts)).toMatchObject({
       hookSpecificOutput: {
         updatedInput: { command: `${VALIDATION_LOCK_PREFIX}pnpm test` },
